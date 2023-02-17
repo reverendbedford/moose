@@ -7397,19 +7397,20 @@ FEProblemBase::getVariableNames()
 }
 
 MooseNonlinearConvergenceReason
-FEProblemBase::checkNonlinearConvergence(std::string & msg,
-                                         const PetscInt it,
-                                         const Real xnorm,
-                                         const Real snorm,
-                                         const Real fnorm,
-                                         const Real rtol,
-                                         const Real divtol,
-                                         const Real stol,
-                                         const Real abstol,
-                                         const PetscInt nfuncs,
-                                         const PetscInt max_funcs,
-                                         const Real initial_residual_before_preset_bcs,
-                                         const Real div_threshold)
+FEProblemBase::checkNonlinearConvergence(
+    std::string & msg,
+    const PetscInt it,
+    const Real xnorm,
+    const Real snorm,
+    const Real fnorm,
+    const Real rtol,
+    const Real divtol,
+    const Real stol,
+    const Real abstol,
+    const PetscInt nfuncs,
+    const PetscInt max_funcs,
+    const Real initial_residual_before_executing_solution_modifying_objects,
+    const Real div_threshold)
 {
   TIME_SECTION("checkNonlinearConvergence", 5, "Checking Nonlinear Convergence");
   mooseAssert(_current_nl_sys, "This should be non-null");
@@ -7427,10 +7428,10 @@ FEProblemBase::checkNonlinearConvergence(std::string & msg,
   // This is the first residual before any iterations have been done,
   // but after preset BCs (if any) have been imposed on the solution
   // vector.  We save it, and use it to detect convergence if
-  // compute_initial_residual_before_preset_bcs=false.
+  // system.shouldEvaluateInitialResidual() == false.
   if (it == 0)
   {
-    system._initial_residual_after_preset_bcs = fnorm;
+    system._initial_residual_after_executing_solution_modifying_objects = fnorm;
     fnorm_old = fnorm;
     _n_nl_pingpong = 0;
   }
@@ -7470,11 +7471,11 @@ FEProblemBase::checkNonlinearConvergence(std::string & msg,
 
   if ((it >= _nl_forced_its) && it && reason == MooseNonlinearConvergenceReason::ITERATING)
   {
-    // If compute_initial_residual_before_preset_bcs==false, then use the
+    // If system.shouldEvaluateInitialResidual() == false, then use the
     // first residual computed by PETSc to determine convergence.
-    Real the_residual = system._compute_initial_residual_before_preset_bcs
-                            ? initial_residual_before_preset_bcs
-                            : system._initial_residual_after_preset_bcs;
+    Real the_residual = system.shouldEvaluateInitialResidual()
+                            ? initial_residual_before_executing_solution_modifying_objects
+                            : system._initial_residual_after_executing_solution_modifying_objects;
     if (fnorm <= the_residual * rtol)
     {
       oss << "Converged due to function norm " << fnorm << " < "

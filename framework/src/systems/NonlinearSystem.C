@@ -19,6 +19,10 @@
 #include "MooseVariableScalar.h"
 #include "MooseTypes.h"
 #include "SolutionInvalidity.h"
+#include "DirichletBCBase.h"
+#include "ADDirichletBCBase.h"
+#include "Constraint.h"
+#include "Predictor.h"
 
 #include "libmesh/nonlinear_solver.h"
 #include "libmesh/petsc_nonlinear_solver.h"
@@ -139,7 +143,9 @@ NonlinearSystem::solve()
       _fe_problem.needsPreviousNewtonIteration())
     _nl_implicit_sys.nonlinear_solver->postcheck = Moose::compute_postcheck;
 
-  if (_fe_problem.solverParams()._type != Moose::ST_LINEAR)
+  _initial_residual_before_executing_solution_modifying_objects = 0;
+  _initial_residual_after_executing_solution_modifying_objects = 0;
+  if (shouldEvaluateInitialResidual())
   {
     TIME_SECTION("nlInitialResidual", 3, "Computing Initial Residual");
     // Calculate the initial residual for use in the convergence criterion.
@@ -147,10 +153,9 @@ NonlinearSystem::solve()
     _fe_problem.computeResidualSys(_nl_implicit_sys, *_current_solution, *_nl_implicit_sys.rhs);
     _computing_initial_residual = false;
     _nl_implicit_sys.rhs->close();
-    _initial_residual_before_preset_bcs = _nl_implicit_sys.rhs->l2_norm();
-    if (_compute_initial_residual_before_preset_bcs)
-      _console << "Initial residual before setting preset BCs: "
-               << _initial_residual_before_preset_bcs << std::endl;
+    _initial_residual_before_executing_solution_modifying_objects = _nl_implicit_sys.rhs->l2_norm();
+    _console << "Initial residual before executing solution modifying objects: "
+             << _initial_residual_before_executing_solution_modifying_objects << std::endl;
   }
 
   // Clear the iteration counters

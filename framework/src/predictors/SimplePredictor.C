@@ -32,9 +32,6 @@ SimplePredictor::shouldApply()
   if (_t_step < 2 || _dt_old <= 0)
     should_apply = false;
 
-  if (!should_apply)
-    _console << "  Skipping predictor this step" << std::endl;
-
   return should_apply;
 }
 

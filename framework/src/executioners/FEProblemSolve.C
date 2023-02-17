@@ -91,6 +91,14 @@ FEProblemSolve::validParams()
       false,
       "Use the residual norm computed *before* preset BCs are imposed in relative "
       "convergence check");
+  params.addParam<bool>("compute_initial_residual_before_constraints",
+                        false,
+                        "Use the residual norm computed *before* constraints are imposed in "
+                        "relative convergence check");
+  params.addParam<bool>("compute_initial_residual_before_predictor",
+                        false,
+                        "Use the residual norm computed *before* the predictor is applied in "
+                        "relative convergence check");
   params.addParam<bool>("automatic_scaling", "Whether to use automatic scaling for the variables.");
   params.addParam<bool>(
       "compute_scaling_once",
@@ -140,14 +148,15 @@ FEProblemSolve::validParams()
                                 "preconditioner for the linear system "
                                 "until the number of linear iterations "
                                 "exceeds this number");
-
-  params.addParamNamesToGroup("solve_type l_tol l_abs_tol l_max_its nl_max_its nl_forced_its "
-                              "nl_max_funcs nl_abs_tol nl_rel_tol nl_abs_step_tol nl_rel_step_tol "
-                              "snesmf_reuse_base compute_initial_residual_before_preset_bcs "
-                              "num_grids nl_div_tol nl_abs_div_tol residual_and_jacobian_together "
-                              "n_max_nonlinear_pingpong reuse_preconditioner "
-                              "reuse_preconditioner_max_linear_its splitting",
-                              "Solver");
+  params.addParamNamesToGroup(
+      "solve_type l_tol l_abs_tol l_max_its nl_max_its nl_max_funcs "
+      "nl_abs_tol nl_rel_tol nl_abs_step_tol nl_rel_step_tol "
+      "snesmf_reuse_base compute_initial_residual_before_preset_bcs "
+      "compute_initial_residual_before_constraints compute_initial_residual_before_predictor "
+      "num_grids nl_div_tol nl_abs_div_tol residual_and_jacobian_together "
+      "n_max_nonlinear_pingpong reuse_preconditioner "
+      "reuse_preconditioner_max_linear_its splitting",
+      "Solver");
   params.addParamNamesToGroup(
       "automatic_scaling compute_scaling_once off_diagonals_in_auto_scaling "
       "scaling_group_variables resid_vs_jac_scaling_param ignore_variables_for_autoscaling",
@@ -207,6 +216,10 @@ FEProblemSolve::FEProblemSolve(Executioner & ex)
 
   _nl._compute_initial_residual_before_preset_bcs =
       getParam<bool>("compute_initial_residual_before_preset_bcs");
+  _nl._compute_initial_residual_before_constraints =
+      getParam<bool>("compute_initial_residual_before_constraints");
+  _nl._compute_initial_residual_before_predictor =
+      getParam<bool>("compute_initial_residual_before_predictor");
 
   _problem.setSNESMFReuseBase(getParam<bool>("snesmf_reuse_base"),
                               _pars.isParamSetByUser("snesmf_reuse_base"));

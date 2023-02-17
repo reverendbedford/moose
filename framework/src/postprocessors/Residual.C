@@ -42,9 +42,11 @@ Residual::getValue()
     if (!fe_problem)
       mooseError("Dynamic cast to FEProblemBase failed in Residual Postprocessor");
     if (_residual_type == "INITIAL_BEFORE_PRESET")
-      residual = fe_problem->getNonlinearSystemBase()._initial_residual_before_preset_bcs;
+      residual = fe_problem->getNonlinearSystemBase()
+                     ._initial_residual_before_executing_solution_modifying_objects;
     else if (_residual_type == "INITIAL_AFTER_PRESET")
-      residual = fe_problem->getNonlinearSystemBase()._initial_residual_after_preset_bcs;
+      residual = fe_problem->getNonlinearSystemBase()
+                     ._initial_residual_after_executing_solution_modifying_objects;
     else
       mooseError("Invalid residual_type option in Residual Postprocessor: ", _residual_type);
   }

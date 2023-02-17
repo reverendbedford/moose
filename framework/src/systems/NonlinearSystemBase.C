@@ -112,10 +112,12 @@ NonlinearSystemBase::NonlinearSystemBase(FEProblemBase & fe_problem,
     _fe_problem(fe_problem),
     _sys(sys),
     _last_nl_rnorm(0.),
-    _initial_residual_before_preset_bcs(0.),
-    _initial_residual_after_preset_bcs(0.),
+    _initial_residual_before_executing_solution_modifying_objects(0),
+    _initial_residual_after_executing_solution_modifying_objects(0),
     _current_nl_its(0),
-    _compute_initial_residual_before_preset_bcs(true),
+    _compute_initial_residual_before_preset_bcs(false),
+    _compute_initial_residual_before_constraints(false),
+    _compute_initial_residual_before_predictor(false),
     _current_solution(NULL),
     _residual_ghosted(NULL),
     _u_dot(NULL),
@@ -3511,6 +3513,38 @@ NonlinearSystemBase::setMooseKSPNormType(MooseEnum kspnorm)
     _ksp_norm = Moose::KSPN_DEFAULT;
   else
     mooseError("Unknown ksp norm type specified.");
+}
+
+bool
+NonlinearSystemBase::shouldEvaluateInitialResidual() const
+{
+  // If solve_type == LINEAR, there is no need to evaluate the initial residual.
+  if (_fe_problem.solverParams()._type == Moose::ST_LINEAR)
+    return false;
+
+  // If there are active preset BCs, constraints, or predictors, then we offer a courtesy
+  // convergence check before modifying the constrained dofs. Unless the user explicitly says no.
+
+  // (AD) nodal preset BCs
+  if (_compute_initial_residual_before_preset_bcs)
+  {
+    for (const auto & preset_nodal_bc : _preset_nodal_bcs.getActiveObjects())
+      if (preset_nodal_bc->shouldApply())
+        return true;
+    for (const auto & ad_preset_nodal_bc : _ad_preset_nodal_bcs.getActiveObjects())
+      if (ad_preset_nodal_bc->shouldApply())
+        return true;
+  }
+
+  // constraints
+  if (_constraints.hasActiveObjects() && _compute_initial_residual_before_constraints)
+    return true;
+
+  // predictors
+  if ((_predictor && _predictor->shouldApply()) && _compute_initial_residual_before_predictor)
+    return true;
+
+  return false;
 }
 
 bool

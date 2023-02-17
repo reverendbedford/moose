@@ -557,6 +557,16 @@ public:
   Moose::MooseKSPNormType getMooseKSPNormType() { return _ksp_norm; }
 
   /**
+   * Some predictors, constraints, and preset BCs may modify the solution vector. We offer the
+   * option to check convergence against the residual norm \em prior to executing these solution
+   * modifying objects. This method handles the logic as to whether we should perform such residual
+   * evaluation.
+   *
+   * \returns A boolean indicating whether we should evaluate the initial residual.
+   */
+  virtual bool shouldEvaluateInitialResidual() const;
+
+  /**
    * Indicated whether this system needs material properties on boundaries.
    * @return Boolean if IntegratedBCs are active
    */
@@ -694,11 +704,13 @@ public:
   System & _sys;
   // FIXME: make these protected and create getters/setters
   Real _last_nl_rnorm;
-  Real _initial_residual_before_preset_bcs;
-  Real _initial_residual_after_preset_bcs;
+  Real _initial_residual_before_executing_solution_modifying_objects;
+  Real _initial_residual_after_executing_solution_modifying_objects;
   std::vector<unsigned int> _current_l_its;
   unsigned int _current_nl_its;
   bool _compute_initial_residual_before_preset_bcs;
+  bool _compute_initial_residual_before_constraints;
+  bool _compute_initial_residual_before_predictor;
 
 protected:
   /**

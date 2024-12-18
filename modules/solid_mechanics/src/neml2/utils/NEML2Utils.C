@@ -10,43 +10,8 @@
 #include "NEML2Utils.h"
 #include "SubProblem.h"
 
-#ifdef NEML2_ENABLED
-
-#include "VariadicTable.h"
-
-namespace neml2
-{
-
-std::ostream &
-operator<<(std::ostream & os, const Model & model)
-{
-  VariadicTable<std::string, std::string, std::string, Size> table(
-      {"Type", "Name", "Tensor type", "Storage size"});
-
-  for (const auto && [name, var] : model.input_variables())
-    table.addRow("input", utils::stringify(name), utils::stringify(var.type()), var.base_storage());
-
-  for (const auto && [name, var] : model.output_variables())
-    table.addRow(
-        "output", utils::stringify(name), utils::stringify(var.type()), var.base_storage());
-
-  for (auto && [name, param] : model.named_parameters())
-    table.addRow("parameter", name, utils::stringify(param.type()), Tensor(param).base_storage());
-
-  for (auto && [name, buffer] : model.named_buffers())
-    table.addRow("buffer", name, utils::stringify(buffer.type()), Tensor(buffer).base_storage());
-
-  table.print(os);
-
-  return os;
-}
-} // namespace neml2
-
-#endif // NEML2_ENABLED
-
 namespace NEML2Utils
 {
-
 #ifdef NEML2_ENABLED
 void
 assertVariable(const neml2::VariableName & v)
@@ -54,12 +19,8 @@ assertVariable(const neml2::VariableName & v)
   if (v.empty())
     mooseError("Empty NEML2 variable");
 
-  if (!v.start_with("forces") && !v.start_with("state"))
-    mooseError("The NEML2 variable '",
-               v,
-               "' should be defined on the forces or the state sub-axis, got ",
-               v.slice(0, 1),
-               " instead");
+  if (!v.is_force() && !v.is_state())
+    mooseError("The NEML2 variable '", v, "' is on the wrong subaxis.");
 }
 
 void
@@ -68,12 +29,14 @@ assertOldVariable(const neml2::VariableName & v)
   if (v.empty())
     mooseError("Empty NEML2 variable");
 
-  if (!v.start_with("old_forces") && !v.start_with("old_state"))
-    mooseError("The NEML2 variable '",
-               v,
-               "' should be defined on the old_forces or the old_state sub-axis, got ",
-               v.slice(0, 1),
-               " instead");
+  if (!v.is_old_force() && !v.is_old_state())
+    mooseError("The NEML2 variable '", v, "' is on the wrong subaxis.");
+}
+
+neml2::VariableName
+parseVariableName(const std::string & s)
+{
+  return neml2::utils::parse<neml2::VariableName>(s);
 }
 
 template <>

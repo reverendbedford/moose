@@ -18,7 +18,7 @@
  * Gather a MOOSE material property for insertion into the NEML2 model.
  */
 template <typename T, unsigned int state>
-class MOOSEMaterialPropertyToNEML2 : public MOOSEToNEML2Batched
+class MOOSEMaterialPropertyToNEML2 : public MOOSEToNEML2Batched<T>
 {
 public:
   static InputParameters validParams();
@@ -27,7 +27,7 @@ public:
 
 #ifdef NEML2_ENABLED
 protected:
-  torch::Tensor convertQpMOOSEData() const override;
+  const MooseArray<T> & elemMOOSEData() const override { return _mat_prop.get(); }
 
   /// MOOSE material property to read data from
   const MaterialProperty<T> & _mat_prop;

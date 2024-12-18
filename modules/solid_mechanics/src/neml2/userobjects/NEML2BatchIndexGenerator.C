@@ -64,7 +64,8 @@ NEML2BatchIndexGenerator::execute()
     return;
 
   _elem_to_batch_index[_current_elem->id()] = _batch_index;
-  _batch_index += _qrule->n_points();
+  _batch_index += 1;
+  _n_qp = _qrule->n_points();
 }
 
 void

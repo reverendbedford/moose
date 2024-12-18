@@ -16,7 +16,6 @@
 RegisterNEML2ToMOOSEMaterialProperty(Real);
 RegisterNEML2ToMOOSEMaterialProperty(SymmetricRankTwoTensor);
 RegisterNEML2ToMOOSEMaterialProperty(SymmetricRankFourTensor);
-RegisterNEML2ToMOOSEMaterialProperty(StdVector);
 
 template <typename T>
 InputParameters
@@ -65,19 +64,17 @@ NEML2ToMOOSEMaterialProperty<T>::NEML2ToMOOSEMaterialProperty(const InputParamet
     _prop0(isParamValid("moose_material_property_init")
                ? &getMaterialProperty<T>("moose_material_property_init")
                : nullptr),
-    _output_view(
+    _value(
         !isParamValid("neml2_input_derivative")
             ? (!isParamValid("neml2_parameter_derivative")
-                   ? _execute_neml2_model.getOutputView(neml2::utils::parse<neml2::VariableName>(
-                         getParam<std::string>("from_neml2")))
+                   ? _execute_neml2_model.getOutputView(
+                         NEML2Utils::parseVariableName(getParam<std::string>("from_neml2")))
                    : _execute_neml2_model.getOutputParameterDerivativeView(
-                         neml2::utils::parse<neml2::VariableName>(
-                             getParam<std::string>("from_neml2")),
+                         NEML2Utils::parseVariableName(getParam<std::string>("from_neml2")),
                          getParam<std::string>("neml2_parameter_derivative")))
             : _execute_neml2_model.getOutputDerivativeView(
-                  neml2::utils::parse<neml2::VariableName>(getParam<std::string>("from_neml2")),
-                  neml2::utils::parse<neml2::VariableName>(
-                      getParam<std::string>("neml2_input_derivative"))))
+                  NEML2Utils::parseVariableName(getParam<std::string>("from_neml2")),
+                  NEML2Utils::parseVariableName(getParam<std::string>("neml2_input_derivative"))))
 #endif
 {
   NEML2Utils::assertNEML2Enabled();
@@ -101,9 +98,7 @@ NEML2ToMOOSEMaterialProperty<T>::computeProperties()
 
   // look up start index for current element
   const auto i = _execute_neml2_model.getBatchIndex(_current_elem->id());
-
-  for (std::size_t qp = 0; qp < _qrule->n_points(); qp++)
-    _prop[qp] = NEML2Utils::toMOOSE<T>(_output_view.batch_index({neml2::Size(i + qp)}));
+  NEML2Utils::copyTensorToMooseArray(_value.batch_index({neml2::Size(i)}), _prop.set());
 }
 #endif
 
@@ -112,4 +107,3 @@ NEML2ToMOOSEMaterialProperty<T>::computeProperties()
 InstantiateNEML2ToMOOSEMaterialProperty(Real);
 InstantiateNEML2ToMOOSEMaterialProperty(SymmetricRankTwoTensor);
 InstantiateNEML2ToMOOSEMaterialProperty(SymmetricRankFourTensor);
-InstantiateNEML2ToMOOSEMaterialProperty(std::vector<Real>);

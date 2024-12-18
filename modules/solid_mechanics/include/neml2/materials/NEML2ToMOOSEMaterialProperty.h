@@ -43,8 +43,8 @@ protected:
   /// Initial condition
   const MaterialProperty<T> * _prop0;
 
-  /// labled view to the requested output (or its derivative)
-  const neml2::Tensor & _output_view;
+  /// Referece to the requested output (or its derivative) value
+  const neml2::Tensor & _value;
 #endif
 };
 
@@ -54,4 +54,3 @@ protected:
 DefineNEML2ToMOOSEMaterialPropertyAlias(Real, Real);
 DefineNEML2ToMOOSEMaterialPropertyAlias(SymmetricRankTwoTensor, SymmetricRankTwoTensor);
 DefineNEML2ToMOOSEMaterialPropertyAlias(SymmetricRankFourTensor, SymmetricRankFourTensor);
-DefineNEML2ToMOOSEMaterialPropertyAlias(std::vector<Real>, StdVector);

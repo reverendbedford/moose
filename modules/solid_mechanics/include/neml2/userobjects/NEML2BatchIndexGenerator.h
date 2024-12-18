@@ -37,9 +37,15 @@ public:
   /// Get the batch index for the given element ID
   std::size_t getBatchIndex(dof_id_type elem_id) const;
 
+  /// Number of quadrature points in each element
+  std::size_t nQp() const { return _n_qp; }
+
 protected:
   /// Whether the batch index map is outdated
   bool _outdated;
+
+  /// Number of elements in each element
+  std::size_t _n_qp;
 
   /// Highest current batch index
   std::size_t _batch_index;

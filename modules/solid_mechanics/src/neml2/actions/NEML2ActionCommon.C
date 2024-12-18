@@ -14,6 +14,7 @@
 
 #ifdef NEML2_ENABLED
 #include "neml2/base/Factory.h"
+#include "neml2/misc/parser_utils.h"
 #endif
 
 registerMooseAction("SolidMechanicsApp", NEML2ActionCommon, "parse_neml2");
@@ -133,28 +134,26 @@ NEML2ActionCommon::validParams()
   params.addRequiredParam<DataFileName>(
       "input",
       NEML2Utils::docstring("Path to the NEML2 input file containing the NEML2 model(s)."));
+  params.addParam<std::vector<std::string>>(
+      "cli_args",
+      {},
+      "Additional command line arguments to use when parsing the NEML2 input file.");
   return params;
 }
 
 NEML2ActionCommon::NEML2ActionCommon(const InputParameters & params)
-  : Action(params), _fname(getDataFileName("input"))
+  : Action(params),
+    _fname(getParam<DataFileName>("input")),
+    _cli_args(getParam<std::vector<std::string>>("cli_args"))
 {
   NEML2Utils::assertNEML2Enabled();
 }
 
-#ifndef NEML2_ENABLED
-
 void
 NEML2ActionCommon::act()
 {
-}
-
-#else
-
-void
-NEML2ActionCommon::act()
-{
+#ifdef NEML2_ENABLED
   if (_current_task == "parse_neml2")
-    neml2::load_input(std::string(_fname));
-}
+    neml2::load_input(std::string(_fname), neml2::utils::join(_cli_args, " "));
 #endif
+}

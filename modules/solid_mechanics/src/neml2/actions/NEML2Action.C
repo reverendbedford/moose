@@ -81,9 +81,8 @@ NEML2Action::NEML2Action(const InputParameters & params)
   // Apply parameters under the common area, i.e., under [NEML2]
   const auto & all_params = _app.getInputParameterWarehouse().getInputParameters();
   auto & sub_block_params = *(all_params.find(uniqueActionName())->second.get());
-  auto common_block = _awh.getActions<NEML2ActionCommon>();
-  mooseAssert(common_block.size() == 1, "There must exist one and only one common NEML2 action.");
-  sub_block_params.applyParameters(common_block[0]->parameters());
+  const auto & common_action = getCommonAction();
+  sub_block_params.applyParameters(common_action.parameters());
 
   // verbosity
   _verbose = getParam<bool>("verbose");
@@ -96,6 +95,14 @@ NEML2Action::NEML2Action(const InputParameters & params)
                "export_outputs should have the same length as export_output_targets");
   for (auto i : index_range(outputs))
     _export_output_targets[outputs[i]] = output_targets[i];
+}
+
+const NEML2ActionCommon &
+NEML2Action::getCommonAction() const
+{
+  auto common_block = _awh.getActions<NEML2ActionCommon>();
+  mooseAssert(common_block.size() == 1, "There must exist one and only one common NEML2 action.");
+  return *common_block[0];
 }
 
 #ifndef NEML2_ENABLED
@@ -115,28 +122,69 @@ NEML2Action::act()
     // Get the NEML2 model so that we can introspect variable tensor types
     auto & model = neml2::get_model(getParam<std::string>("model"));
 
-    // List inputs, outputs, and parameters of the model
-    if (_verbose)
-    {
-      _console << COLOR_YELLOW << "*** NEML2 MATERIAL MODEL SUMMARY BEGIN ***" << COLOR_DEFAULT
-               << std::endl;
-      _console << "Input file location:       " << parameters().blockLocation() << std::endl;
-      _console << "Input file path:           " << parameters().blockFullpath() << std::endl;
-      _console << "Material model Name:       " << getParam<std::string>("model") << std::endl;
-      _console << "Evaluation device:         " << getParam<std::string>("device") << std::endl;
-      _console << "Automatic differentiation: "
-               << (getParam<bool>("enable_AD") ? "Enabled" : "Disabled") << std::endl;
-      _console << "Material model structure:  " << std::endl;
-      _console << model;
-      _console << COLOR_YELLOW << "*** NEML2 MATERIAL MODEL SUMMARY END ***\n"
-               << COLOR_DEFAULT << std::endl;
-    }
-
     setupInputMappings(model);
     setupParameterMappings(model);
     setupOutputMappings(model);
     setupDerivativeMappings(model);
     setupParameterDerivativeMappings(model);
+
+    if (_verbose)
+    {
+      // Save formatting of the output stream so that we can restore it later
+      const auto flags = _console.flags();
+
+      // Default width for the summary
+      const int width = 79;
+
+      _console << std::endl;
+      _console << COLOR_CYAN << std::setw(width) << std::setfill('*') << std::left
+               << "NEML2 MATERIAL MODEL SUMMARY BEGIN " << std::setfill(' ') << COLOR_DEFAULT
+               << std::endl;
+
+      // Metadata
+      _console << "NEML2 input file location: " << getCommonAction().fname() << std::endl;
+      _console << "NEML2 action path:         " << parameters().blockFullpath() << std::endl;
+
+      // List inputs, outputs, and parameters of the model
+      _console << COLOR_CYAN << std::setw(width) << std::setfill('-') << std::left
+               << "Material model structure " << std::setfill(' ') << COLOR_DEFAULT << std::endl;
+      _console << model;
+
+      // List transfer between MOOSE and NEML2
+      _console << COLOR_CYAN << std::setw(width) << std::setfill('-') << std::left
+               << "Transfer between MOOSE and NEML2 " << std::setfill(' ') << COLOR_DEFAULT
+               << std::endl;
+      const auto max_moose_name_length = getMaximumMOOSEName();
+      for (const auto & input : _inputs)
+      {
+        _console << std::setw(max_moose_name_length) << std::right
+                 << (input.neml2.name.is_old_force() || input.neml2.name.is_old_state()
+                         ? ("(old) " + input.moose.name)
+                         : input.moose.name)
+                 << " --> " << input.neml2.name << std::endl;
+      }
+      for (const auto & param : _params)
+        _console << std::setw(max_moose_name_length) << std::right << param.moose.name << " --> "
+                 << param.neml2.name << std::endl;
+      for (const auto & output : _outputs)
+        _console << std::setw(max_moose_name_length) << std::right << output.moose.name << " <-- "
+                 << output.neml2.name << std::endl;
+      for (const auto & deriv : _derivs)
+        _console << std::setw(max_moose_name_length) << std::right << deriv.moose.name << " <-- d("
+                 << deriv.neml2.y.name << ")/d(" << deriv.neml2.x.name << ")" << std::endl;
+      for (const auto & param_deriv : _param_derivs)
+        _console << std::setw(max_moose_name_length) << std::right << param_deriv.moose.name
+                 << " <-- d(" << param_deriv.neml2.y.name << ")/d(" << param_deriv.neml2.x.name
+                 << ")" << std::endl;
+
+      _console << COLOR_CYAN << std::setw(width) << std::setfill('*') << std::left
+               << "NEML2 MATERIAL MODEL SUMMARY END " << std::setfill(' ') << COLOR_DEFAULT
+               << std::endl
+               << std::endl;
+
+      // Restore the formatting of the output stream
+      _console.flags(flags);
+    }
 
     // MOOSEToNEML2 input gatherers
     std::vector<UserObjectName> gatherers;
@@ -147,7 +195,7 @@ NEML2Action::act()
         auto obj_name = "__moose(" + input.moose.name + ")->neml2(" +
                         neml2::utils::stringify(input.neml2.name) + ")_" + name() + "__";
         auto obj_moose_type = tensor_type_map.at(input.neml2.type) + "MaterialProperty";
-        if (input.neml2.name.start_with("old_forces") || input.neml2.name.start_with("old_state"))
+        if (input.neml2.name.is_old_force() || input.neml2.name.is_old_state())
           obj_moose_type = "Old" + obj_moose_type;
         auto obj_type = "MOOSE" + obj_moose_type + "ToNEML2";
         auto obj_params = _factory.getValidParams(obj_type);
@@ -162,7 +210,7 @@ NEML2Action::act()
         auto obj_name = "__moose(" + input.moose.name + ")->neml2(" +
                         neml2::utils::stringify(input.neml2.name) + ")_" + name() + "__";
         std::string obj_moose_type = "Variable";
-        if (input.neml2.name.start_with("old_forces") || input.neml2.name.start_with("old_state"))
+        if (input.neml2.name.is_old_force() || input.neml2.name.is_old_state())
           obj_moose_type = "Old" + obj_moose_type;
         auto obj_type = "MOOSE" + obj_moose_type + "ToNEML2";
         auto obj_params = _factory.getValidParams(obj_type);
@@ -177,7 +225,7 @@ NEML2Action::act()
         auto obj_name = "__moose(" + input.moose.name + ")->neml2(" +
                         neml2::utils::stringify(input.neml2.name) + ")" + name() + "__";
         auto obj_moose_type = std::string("Postprocessor");
-        if (input.neml2.name.start_with("old_forces") || input.neml2.name.start_with("old_state"))
+        if (input.neml2.name.is_old_force() || input.neml2.name.is_old_state())
           obj_moose_type = "Old" + obj_moose_type;
         auto obj_type = "MOOSE" + obj_moose_type + "ToNEML2";
         auto obj_params = _factory.getValidParams(obj_type);
@@ -347,6 +395,27 @@ NEML2Action::act()
   }
 }
 
+std::size_t
+NEML2Action::getMaximumMOOSEName() const
+{
+  std::size_t max_moose_name_length = 0;
+  for (const auto & input : _inputs)
+    max_moose_name_length =
+        std::max(max_moose_name_length,
+                 input.neml2.name.is_old_force() || input.neml2.name.is_old_state()
+                     ? input.moose.name.size() + 6
+                     : input.moose.name.size()); // 6 is the length of "(old) "
+  for (const auto & param : _params)
+    max_moose_name_length = std::max(max_moose_name_length, param.moose.name.size());
+  for (const auto & output : _outputs)
+    max_moose_name_length = std::max(max_moose_name_length, output.moose.name.size());
+  for (const auto & deriv : _derivs)
+    max_moose_name_length = std::max(max_moose_name_length, deriv.moose.name.size());
+  for (const auto & param_deriv : _param_derivs)
+    max_moose_name_length = std::max(max_moose_name_length, param_deriv.moose.name.size());
+  return max_moose_name_length;
+}
+
 void
 NEML2Action::setupInputMappings(const neml2::Model & model)
 {
@@ -362,10 +431,10 @@ NEML2Action::setupInputMappings(const neml2::Model & model)
 
   for (auto i : index_range(moose_inputs))
   {
-    auto neml2_input = neml2::utils::parse<neml2::VariableName>(neml2_inputs[i]);
+    auto neml2_input = NEML2Utils::parseVariableName(neml2_inputs[i]);
     _inputs.push_back({
         {moose_inputs[i], moose_input_types[i]},
-        {neml2_input, model.input_type(neml2_input)},
+        {neml2_input, model.input_variable(neml2_input).type()},
     });
   }
 }
@@ -405,10 +474,10 @@ NEML2Action::setupOutputMappings(const neml2::Model & model)
 
   for (auto i : index_range(moose_outputs))
   {
-    auto neml2_output = neml2::utils::parse<neml2::VariableName>(neml2_outputs[i]);
+    auto neml2_output = NEML2Utils::parseVariableName(neml2_outputs[i]);
     _outputs.push_back({
         {moose_outputs[i], moose_output_types[i]},
-        {neml2_output, model.output_type(neml2_output)},
+        {neml2_output, model.output_variable(neml2_output).type()},
     });
   }
 }
@@ -433,11 +502,12 @@ NEML2Action::setupDerivativeMappings(const neml2::Model & model)
     if (neml2_derivs[i].size() != 2)
       paramError("neml2_derivatives", "The length of each pair in neml2_derivatives must be 2.");
 
-    auto neml2_y = neml2::utils::parse<neml2::VariableName>(neml2_derivs[i][0]);
-    auto neml2_x = neml2::utils::parse<neml2::VariableName>(neml2_derivs[i][1]);
+    auto neml2_y = NEML2Utils::parseVariableName(neml2_derivs[i][0]);
+    auto neml2_x = NEML2Utils::parseVariableName(neml2_derivs[i][1]);
     _derivs.push_back({
         {moose_derivs[i], moose_deriv_types[i]},
-        {{neml2_y, model.output_type(neml2_y)}, {neml2_x, model.input_type(neml2_x)}},
+        {{neml2_y, model.output_variable(neml2_y).type()},
+         {neml2_x, model.input_variable(neml2_x).type()}},
     });
   }
 }
@@ -466,11 +536,12 @@ NEML2Action::setupParameterDerivativeMappings(const neml2::Model & model)
       paramError("neml2_parameter_derivatives",
                  "The length of each pair in neml2_parameter_derivatives must be 2.");
 
-    auto neml2_y = neml2::utils::parse<neml2::VariableName>(neml2_param_derivs[i][0]);
+    auto neml2_y = NEML2Utils::parseVariableName(neml2_param_derivs[i][0]);
     auto neml2_x = neml2_param_derivs[i][1];
     _param_derivs.push_back({
         {moose_param_derivs[i], moose_param_deriv_types[i]},
-        {{neml2_y, model.output_type(neml2_y)}, {neml2_x, model.get_parameter(neml2_x).type()}},
+        {{neml2_y, model.output_variable(neml2_y).type()},
+         {neml2_x, model.get_parameter(neml2_x).type()}},
     });
   }
 }

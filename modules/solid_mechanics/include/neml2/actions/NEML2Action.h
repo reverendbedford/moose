@@ -15,6 +15,8 @@
 
 #include "Action.h"
 
+class NEML2ActionCommon;
+
 /**
  * Action to set up NEML2 objects.
  */
@@ -28,6 +30,8 @@ public:
   virtual void act() override;
 
 protected:
+  const NEML2ActionCommon & getCommonAction() const;
+
 #ifdef NEML2_ENABLED
 
   enum class MOOSEIOType
@@ -132,4 +136,8 @@ protected:
 
   /// Material property additional outputs
   std::map<MaterialPropertyName, std::vector<OutputName>> _export_output_targets;
+
+private:
+  /// Get the maximum length of all MOOSE names (for printing purposes)
+  std::size_t getMaximumMOOSEName() const;
 };

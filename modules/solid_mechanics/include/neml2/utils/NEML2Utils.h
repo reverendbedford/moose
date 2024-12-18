@@ -102,10 +102,9 @@ neml2::Tensor
 fromBlob(const std::vector<MooseArray<T>> & data)
 {
   std::vector<torch::Tensor> tensors(data.size());
-  std::transform(data.begin(),
-                 data.end(),
-                 tensors.begin(),
-                 [](const MooseArray<T> & array) { return fromBlob(array); });
+  std::transform(data.begin(), data.end(), tensors.begin(), [](const MooseArray<T> & array) {
+    return fromBlob(array);
+  });
   return neml2::Tensor(torch::stack(tensors), 2);
 }
 

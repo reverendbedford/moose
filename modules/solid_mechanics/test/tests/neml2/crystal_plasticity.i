@@ -1,4 +1,3 @@
-neml2_input = viscoplasticity_chaboche
 N = 2
 
 [GlobalParams]
@@ -41,11 +40,11 @@ N = 2
     neml2_inputs = '     forces/spatial_velocity_increment  forces/t      old_forces/t  old_state/elastic_strain  old_state/orientation     old_state/internal/slip_hardening'
 
     moose_output_types = 'MATERIAL                            MATERIAL                  MATERIAL                  MATERIAL'
-    moose_outputs = '     cauchy_stress                       elastic_strain            orientation               slip_hardening'
+    moose_outputs = '     neml2_cauchy_stress                       elastic_strain            orientation               slip_hardening'
     neml2_outputs = '     state/internal/full_cauchy_stress   state/elastic_strain      state/orientation         state/internal/slip_hardening'
 
     moose_derivative_types = 'MATERIAL'
-    moose_derivatives = '     cauchy_jacobian'
+    moose_derivatives = '     neml2_cauchy_jacobian'
     neml2_derivatives = '     state/internal/full_cauchy_stress forces/spatial_velocity_increment'
   []
 []
@@ -58,7 +57,11 @@ N = 2
 []
 
 [Materials]
-
+  [copy]
+    type = ComputeLagrangianCauchyCustomStress
+    custom_cauchy_stress = 'neml2_cauchy_stress'
+    custom_cauchy_jacobian = 'neml2_cauchy_jacobian'
+  []
 []
 
 [BCs]
@@ -95,7 +98,7 @@ N = 2
   petsc_options_iname = '-pc_type'
   petsc_options_value = 'lu'
   automatic_scaling = true
-  dt = 1e-3
+  dt = 5e-3
   dtmin = 1e-3
   num_steps = 5
   residual_and_jacobian_together = true

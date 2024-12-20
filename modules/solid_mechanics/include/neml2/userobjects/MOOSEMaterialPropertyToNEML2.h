@@ -42,3 +42,4 @@ DefineMOOSEMaterialPropertyToNEML2Alias(Real, Real);
 DefineMOOSEMaterialPropertyToNEML2Alias(RankTwoTensor, RankTwoTensor);
 DefineMOOSEMaterialPropertyToNEML2Alias(SymmetricRankTwoTensor, SymmetricRankTwoTensor);
 DefineMOOSEMaterialPropertyToNEML2Alias(std::vector<Real>, StdVector);
+DefineMOOSEMaterialPropertyToNEML2Alias(RealVectorValue, RealVectorValue);

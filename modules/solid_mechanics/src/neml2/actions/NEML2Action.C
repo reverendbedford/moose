@@ -29,6 +29,7 @@ const std::map<neml2::TensorType, std::string> tensor_type_map = {
     {neml2::TensorType::kR2, "RankTwoTensor"},
     {neml2::TensorType::kSSR4, "SymmetricRankFourTensor"},
     {neml2::TensorType::kR4, "RankFourTensor"},
+    {neml2::TensorType::kRot, "RealVectorValue"}
 };
 // NEML2 (output, input) type --> NEML2 derivative type
 const std::map<std::pair<neml2::TensorType, neml2::TensorType>, neml2::TensorType> deriv_type_map =
@@ -194,7 +195,15 @@ NEML2Action::act()
       {
         auto obj_name = "__moose(" + input.moose.name + ")->neml2(" +
                         neml2::utils::stringify(input.neml2.name) + ")_" + name() + "__";
-        auto obj_moose_type = tensor_type_map.at(input.neml2.type) + "MaterialProperty";
+        std::string obj_moose_type;
+        try
+        {
+          obj_moose_type = tensor_type_map.at(input.neml2.type) + "MaterialProperty";
+        }
+        catch (const std::out_of_range & e)
+        {
+          mooseError("NEML2 type ", input.neml2.type, " not yet mapped to MOOSE");
+        }
         if (input.neml2.name.is_old_force() || input.neml2.name.is_old_state())
           obj_moose_type = "Old" + obj_moose_type;
         auto obj_type = "MOOSE" + obj_moose_type + "ToNEML2";

@@ -16,6 +16,7 @@
 RegisterMOOSEMaterialPropertyToNEML2(Real);
 RegisterMOOSEMaterialPropertyToNEML2(RankTwoTensor);
 RegisterMOOSEMaterialPropertyToNEML2(SymmetricRankTwoTensor);
+RegisterMOOSEMaterialPropertyToNEML2(RealVectorValue);
 
 template <typename T, unsigned int state>
 InputParameters
@@ -47,3 +48,4 @@ MOOSEMaterialPropertyToNEML2<T, state>::MOOSEMaterialPropertyToNEML2(const Input
 InstantiateMOOSEMaterialPropertyToNEML2(Real);
 InstantiateMOOSEMaterialPropertyToNEML2(RankTwoTensor);
 InstantiateMOOSEMaterialPropertyToNEML2(SymmetricRankTwoTensor);
+InstantiateMOOSEMaterialPropertyToNEML2(RealVectorValue);

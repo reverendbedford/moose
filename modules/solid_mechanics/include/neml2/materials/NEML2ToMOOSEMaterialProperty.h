@@ -54,3 +54,6 @@ protected:
 DefineNEML2ToMOOSEMaterialPropertyAlias(Real, Real);
 DefineNEML2ToMOOSEMaterialPropertyAlias(SymmetricRankTwoTensor, SymmetricRankTwoTensor);
 DefineNEML2ToMOOSEMaterialPropertyAlias(SymmetricRankFourTensor, SymmetricRankFourTensor);
+DefineNEML2ToMOOSEMaterialPropertyAlias(RealVectorValue, RealVectorValue);
+DefineNEML2ToMOOSEMaterialPropertyAlias(RankTwoTensor, RankTwoTensor);
+DefineNEML2ToMOOSEMaterialPropertyAlias(RankFourTensor, RankFourTensor);

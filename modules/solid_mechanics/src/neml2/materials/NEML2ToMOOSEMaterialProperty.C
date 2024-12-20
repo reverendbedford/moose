@@ -16,6 +16,9 @@
 RegisterNEML2ToMOOSEMaterialProperty(Real);
 RegisterNEML2ToMOOSEMaterialProperty(SymmetricRankTwoTensor);
 RegisterNEML2ToMOOSEMaterialProperty(SymmetricRankFourTensor);
+RegisterNEML2ToMOOSEMaterialProperty(RealVectorValue);
+RegisterNEML2ToMOOSEMaterialProperty(RankTwoTensor);
+RegisterNEML2ToMOOSEMaterialProperty(RankFourTensor);
 
 template <typename T>
 InputParameters
@@ -107,3 +110,6 @@ NEML2ToMOOSEMaterialProperty<T>::computeProperties()
 InstantiateNEML2ToMOOSEMaterialProperty(Real);
 InstantiateNEML2ToMOOSEMaterialProperty(SymmetricRankTwoTensor);
 InstantiateNEML2ToMOOSEMaterialProperty(SymmetricRankFourTensor);
+InstantiateNEML2ToMOOSEMaterialProperty(RealVectorValue);
+InstantiateNEML2ToMOOSEMaterialProperty(RankTwoTensor);
+InstantiateNEML2ToMOOSEMaterialProperty(RankFourTensor);

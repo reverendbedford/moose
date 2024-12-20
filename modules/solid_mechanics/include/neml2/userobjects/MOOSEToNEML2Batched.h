@@ -122,6 +122,6 @@ template <typename T>
 neml2::Tensor
 MOOSEToNEML2Batched<T>::gatheredData() const
 {
-  return NEML2Utils::from_blob(_buffer);
+  return NEML2Utils::fromBlob(_buffer);
 }
 #endif

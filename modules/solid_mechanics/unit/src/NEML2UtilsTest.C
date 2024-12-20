@@ -12,14 +12,14 @@
 #include "NEML2Utils.h"
 
 #ifdef NEML2_ENABLED
-TEST(NEML2Utils, from_blob_Real)
+TEST(NEML2Utils, fromBlob_Real)
 {
   MooseArray<Real> data(3);
   data[0] = 1.0;
   data[1] = 2.0;
   data[2] = 3.0;
 
-  auto tensor = NEML2Utils::from_blob(data);
+  auto tensor = NEML2Utils::fromBlob(data);
   ASSERT_TRUE(tensor.defined());
   ASSERT_TRUE(tensor.dim() == 1);
   ASSERT_TRUE(tensor.batch_dim() == 1);
@@ -30,14 +30,14 @@ TEST(NEML2Utils, from_blob_Real)
     EXPECT_NEAR(tensor.index({n}).item<Real>(), data[n], 1e-12);
 }
 
-TEST(NEML2Utils, from_blob_RealVectorValue)
+TEST(NEML2Utils, fromBlob_RealVectorValue)
 {
   MooseArray<RealVectorValue> data(3);
   data[0] = RealVectorValue(1.0, 2.0, 3.0);
   data[1] = RealVectorValue(4.0, 5.0, 6.0);
   data[2] = RealVectorValue(7.0, 8.0, 9.0);
 
-  auto tensor = NEML2Utils::from_blob(data);
+  auto tensor = NEML2Utils::fromBlob(data);
   ASSERT_TRUE(tensor.defined());
   ASSERT_TRUE(tensor.dim() == 2);
   ASSERT_TRUE(tensor.batch_dim() == 1);
@@ -50,13 +50,13 @@ TEST(NEML2Utils, from_blob_RealVectorValue)
       EXPECT_NEAR(tensor.index({n, i}).item<Real>(), data[n](i), 1e-12);
 }
 
-TEST(NEML2Utils, from_blob_RankTwoTensor)
+TEST(NEML2Utils, fromBlob_RankTwoTensor)
 {
   MooseArray<RankTwoTensor> data(2);
   data[0] = RankTwoTensor(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0);
   data[1] = RankTwoTensor(-1.0, -2.0, -3.0, -4.0, -5.0, -6.0, -7.0, -8.0, -9.0);
 
-  auto tensor = NEML2Utils::from_blob(data);
+  auto tensor = NEML2Utils::fromBlob(data);
   ASSERT_TRUE(tensor.defined());
   ASSERT_TRUE(tensor.dim() == 3);
   ASSERT_TRUE(tensor.batch_dim() == 1);
@@ -71,13 +71,13 @@ TEST(NEML2Utils, from_blob_RankTwoTensor)
         EXPECT_NEAR(tensor.index({n, i, j}).item<Real>(), data[n](i, j), 1e-12);
 }
 
-TEST(NEML2Utils, from_blob_SymmetricRankTwoTensor)
+TEST(NEML2Utils, fromBlob_SymmetricRankTwoTensor)
 {
   MooseArray<SymmetricRankTwoTensor> data(2);
   data[0] = SymmetricRankTwoTensor(1.0, 2.0, 3.0, 4.0, 5.0, 6.0);
   data[1] = SymmetricRankTwoTensor(-1.0, -2.0, -3.0, -4.0, -5.0, -6.0);
 
-  auto tensor = NEML2Utils::from_blob(data);
+  auto tensor = NEML2Utils::fromBlob(data);
   ASSERT_TRUE(tensor.defined());
   ASSERT_TRUE(tensor.dim() == 2);
   ASSERT_TRUE(tensor.batch_dim() == 1);

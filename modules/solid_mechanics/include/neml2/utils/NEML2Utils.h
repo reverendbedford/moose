@@ -80,7 +80,7 @@ struct Layout<SymmetricRankTwoTensor>
  */
 template <typename T>
 neml2::Tensor
-from_blob(const MooseArray<T> & data)
+fromBlob(const MooseArray<T> & data)
 {
   // The const_cast is fine because torch works with non-const ptr so that it can optionally handle
   // deallocation. But we are not going to let torch do that.
@@ -99,16 +99,26 @@ from_blob(const MooseArray<T> & data)
  */
 template <typename T>
 neml2::Tensor
-from_blob(const std::vector<MooseArray<T>> & data)
+fromBlob(const std::vector<MooseArray<T>> & data)
 {
   std::vector<torch::Tensor> tensors(data.size());
   std::transform(data.begin(),
                  data.end(),
                  tensors.begin(),
-                 [](const MooseArray<T> & array) { return from_blob(array); });
+                 [](const MooseArray<T> & array) { return fromBlob(array); });
   return neml2::Tensor(torch::stack(tensors), 2);
 }
 
+/**
+ * @brief Directly copy a contiguous chunk of memory of a torch::Tensor to a MooseArray<T>
+ *
+ * This assumes the torch::Tensor and MooseArray<T> has the same layout, for example both row-major
+ * with T = RankTwoTensor. If the layouts are different, we may need to reshape/reorder/transpose
+ * the torch::Tensor before memcpy.
+ *
+ * Note that the torch::Tensor is always made contiguous before memcpy. If the src tensor is already
+ * contiguous, the .contiguous() call is (mostly) a no-op.
+ */
 template <typename T>
 void
 copyTensorToMooseArray(const torch::Tensor & src, MooseArray<T> & dest)
@@ -118,47 +128,8 @@ copyTensorToMooseArray(const torch::Tensor & src, MooseArray<T> & dest)
 
   // memcpy reinterpret the data as unsigned char
   const std::size_t n_unsigned_char = src.numel() * sizeof(Real) / sizeof(unsigned char);
-
-  // This assumes the neml2::Tensor and MooseArray<T> has same layout, for example both row-major (T
-  // = RankTwoTensor). If the layouts are different, we may need to reshape the neml2::Tensor before
-  // memcpy.
   std::memcpy(dest.data(), src.contiguous().data_ptr(), n_unsigned_char);
 }
-
-/// Convert a MOOSE data structure to its NEML2 counterpart
-template <typename T>
-neml2::Tensor toNEML2(const T &);
-
-/**
- * Convert a wrapped (batched) MOOSE data structure to its NEML2 counterpart
- * The wrapper should implement size()
- */
-template <typename T>
-neml2::Tensor toNEML2Batched(const T & data);
-
-// @{ Template specializations
-template <>
-neml2::Tensor toNEML2(const Real & v);
-template <>
-neml2::Tensor toNEML2(const RankTwoTensor & r2t);
-template <>
-neml2::Tensor toNEML2(const std::vector<Real> & v);
-// @}
-
-/// Convert a NEML2 data structure to its MOOSE counterpart
-template <typename T>
-T toMOOSE(const neml2::Tensor &);
-
-// @{ Template specializations
-template <>
-Real toMOOSE(const neml2::Tensor & t);
-template <>
-SymmetricRankTwoTensor toMOOSE(const neml2::Tensor & t);
-template <>
-std::vector<Real> toMOOSE(const neml2::Tensor & t);
-template <>
-SymmetricRankFourTensor toMOOSE(const neml2::Tensor & t);
-// @}
 
 static std::string NEML2_help_message = R""""(
 ==============================================================================
@@ -173,19 +144,6 @@ To debug NEML2 related issues:
    https://github.com/applied-material-modeling/neml2/issues
 ==============================================================================
 )"""";
-
-////////////////////////////////////////////////////////////////////////////////
-// Implementations
-////////////////////////////////////////////////////////////////////////////////
-template <typename T>
-neml2::Tensor
-toNEML2Batched(const T & data)
-{
-  std::vector<torch::Tensor> res(data.size());
-  for (const auto i : index_range(data))
-    res[i] = toNEML2<typename T::value_type>(data[i]);
-  return neml2::Tensor(torch::stack(res, 0), 1);
-}
 
 #endif // NEML2_ENABLED
 

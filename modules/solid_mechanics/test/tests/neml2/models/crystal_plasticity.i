@@ -13,7 +13,6 @@
   []
 []
 
-
 [Solvers]
   [newton]
     type = NewtonWithLineSearch
@@ -31,6 +30,12 @@
 []
 
 [Models]
+  [spatial_velocity_gradient]
+    type = R2IncrementalRate
+    variable = 'forces/spatial_velocity_increment'
+    time = 'forces/t'
+    rate = 'forces/spatial_velocity_gradient'
+  []
   [split_to_deformation_rate]
     type = R2toSR2
     input = 'forces/spatial_velocity_gradient'
@@ -48,8 +53,8 @@
   []
   [elasticity]
     type = LinearIsotropicElasticity
-    youngs_modulus = 1e5
-    poisson_ratio = 0.25
+    coefficient_types = 'YOUNGS_MODULUS POISSONS_RATIO'
+    coefficients = '1e5 0.25'
     strain = "state/elastic_strain"
     stress = "state/internal/cauchy_stress"
   []
@@ -100,7 +105,7 @@
 
   [implicit_rate]
     type = ComposedModel
-    models = "euler_rodrigues elasticity orientation_rate resolved_shear
+    models = "spatial_velocity_gradient split_to_deformation_rate split_to_vorticity euler_rodrigues elasticity orientation_rate resolved_shear
               elastic_stretch plastic_deformation_rate plastic_spin
               sum_slip_rates slip_rule slip_strength voce_hardening
               integrate_slip_hardening integrate_elastic_strain integrate_orientation"
@@ -110,9 +115,14 @@
     implicit_model = 'implicit_rate'
     solver = 'newton'
   []
+  [full_stress]
+    type = SR2toR2
+    input = 'state/internal/cauchy_stress'
+    output = 'state/internal/full_cauchy_stress'
+  []
   [model]
     type = ComposedModel
-    models = 'model_without_stress elasticity'
+    models = 'model_without_stress elasticity full_stress'
     additional_outputs = 'state/elastic_strain'
   []
 []

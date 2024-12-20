@@ -36,17 +36,17 @@ N = 2
     verbose = true
     device = 'cpu'
 
-    moose_input_types = 'MATERIAL                         POSTPROCESSOR POSTPROCESSOR MATERIAL                  MATERIAL                  MATERIAL'
-    moose_inputs = '     spatial_velocity_gradient        time          time          elastic_strain            orientation               slip_hardening'
-    neml2_inputs = '     forces/spatial_velocity_gradient forces/t      old_forces/t  old_state/elastic_strain  old_state/orientation     old_state/internal/slip_hardening'
+    moose_input_types = 'MATERIAL                           POSTPROCESSOR POSTPROCESSOR MATERIAL                  MATERIAL                  MATERIAL'
+    moose_inputs = '     spatial_velocity_increment         time          time          elastic_strain            orientation               slip_hardening'
+    neml2_inputs = '     forces/spatial_velocity_increment  forces/t      old_forces/t  old_state/elastic_strain  old_state/orientation     old_state/internal/slip_hardening'
 
-    moose_output_types = 'MATERIAL                      MATERIAL                  MATERIAL                  MATERIAL'
-    moose_outputs = '     neml2_stress                  elastic_strain            orientation               slip_hardening'
-    neml2_outputs = '     state/internal/cauchy_stress  state/elastic_strain      state/orientation         state/internal/slip_hardening'
+    moose_output_types = 'MATERIAL                            MATERIAL                  MATERIAL                  MATERIAL'
+    moose_outputs = '     cauchy_stress                       elastic_strain            orientation               slip_hardening'
+    neml2_outputs = '     state/internal/full_cauchy_stress   state/elastic_strain      state/orientation         state/internal/slip_hardening'
 
     moose_derivative_types = 'MATERIAL'
-    moose_derivatives = '     neml2_jacobian'
-    neml2_derivatives = '     state/internal/cauchy_stress forces/spatial_velocity_gradient'
+    moose_derivatives = '     cauchy_jacobian'
+    neml2_derivatives = '     state/internal/full_cauchy_stress forces/spatial_velocity_increment'
   []
 []
 
@@ -58,16 +58,7 @@ N = 2
 []
 
 [Materials]
-  [convert_strain]
-    type = RankTwoTensorToSymmetricRankTwoTensor
-    from = 'mechanical_strain'
-    to = 'neml2_strain'
-  []
-  [stress]
-    type = ComputeLagrangianObjectiveCustomSymmetricStress
-    custom_small_stress = 'neml2_stress'
-    custom_small_jacobian = 'neml2_jacobian'
-  []
+
 []
 
 [BCs]

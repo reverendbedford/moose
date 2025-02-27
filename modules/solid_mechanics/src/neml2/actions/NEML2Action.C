@@ -15,7 +15,7 @@
 #include "InputParameterWarehouse.h"
 
 #ifdef NEML2_ENABLED
-#include "neml2/misc/parser_utils.h"
+#include "neml2/base/Parser.h"
 #endif
 
 registerMooseAction("SolidMechanicsApp", NEML2Action, "add_material");

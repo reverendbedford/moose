@@ -12,7 +12,7 @@
 #include <set>
 
 #ifdef NEML2_ENABLED
-#include "neml2/misc/math.h"
+#include "neml2/tensors/functions/jacrev.h"
 #endif
 
 registerMooseObject("SolidMechanicsApp", NEML2ModelExecutor);
@@ -124,7 +124,7 @@ NEML2ModelExecutor::initialSetup()
 
     // introspect the NEML2 model to figure out if the gatherer UO is gathering for a NEML2 input
     // variable or for a NEML2 model parameter
-    if (!model().named_parameters().has_key(uo.NEML2Name()))
+    if (model().named_parameters().count(uo.NEML2Name()) != 1)
       mooseError("The MOOSEToNEML2 gatherer named '",
                  gatherer_name,
                  "' is gathering MOOSE data for a non-existent NEML2 model parameter named '",
@@ -300,7 +300,7 @@ NEML2ModelExecutor::extractOutputs()
   // retrieve parameter derivatives
   for (auto & [y, dy] : _retrieved_parameter_derivatives)
     for (auto & [p, target] : dy)
-      target = neml2::math::jacrev(_out[y],
+      target = neml2::jacrev(_out[y],
                                    model().get_parameter(p),
                                    /*retain_graph=*/true,
                                    /*create_graph=*/false,
@@ -378,7 +378,7 @@ NEML2ModelExecutor::getOutputParameterDerivative(const neml2::VariableName & out
                parameter_name,
                "', but the NEML2 output variable does not exist.");
 
-  if (!model().named_parameters().has_key(parameter_name))
+  if (model().named_parameters().count(parameter_name) != 1)
     mooseError("Trying to retrieve the derivative of NEML2 output variable '",
                output_name,
                "' with respect to NEML2 model parameter '",

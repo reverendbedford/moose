@@ -284,6 +284,7 @@ void
 NEML2ModelExecutor::solve()
 {
   // Evaluate the NEML2 material model
+  TIME_SECTION("NEML2 solve", 3, "Solving NEML2 material model");
   std::tie(_out, _dout_din) = model().value_and_dvalue(_in);
   _in.clear();
 }
@@ -301,10 +302,10 @@ NEML2ModelExecutor::extractOutputs()
   for (auto & [y, dy] : _retrieved_parameter_derivatives)
     for (auto & [p, target] : dy)
       target = neml2::jacrev(_out[y],
-                                   model().get_parameter(p),
-                                   /*retain_graph=*/true,
-                                   /*create_graph=*/false,
-                                   /*allow_unused=*/false)
+                             model().get_parameter(p),
+                             /*retain_graph=*/true,
+                             /*create_graph=*/false,
+                             /*allow_unused=*/false)
                    .to(torch::kCPU);
 
   // clear output

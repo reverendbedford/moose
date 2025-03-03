@@ -162,6 +162,7 @@ NEML2ModelInterface<T>::NEML2ModelInterface(const InputParameters & params, P &&
         _async_dispatch,
         [&](neml2::ValueMap && x, neml2::Device device) -> RJType {
           auto & model = neml2::get_model(_model.name());
+          model.to(device);
           return model.value_and_dvalue(std::move(x));
         },
         red,

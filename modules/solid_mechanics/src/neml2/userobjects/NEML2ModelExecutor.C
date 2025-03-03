@@ -13,6 +13,7 @@
 
 #ifdef NEML2_ENABLED
 #include "neml2/tensors/functions/jacrev.h"
+#include "neml2/dispatchers/ValueMapLoader.h"
 #endif
 
 registerMooseObject("SolidMechanicsApp", NEML2ModelExecutor);
@@ -281,11 +282,34 @@ NEML2ModelExecutor::applyPredictor()
 }
 
 void
+NEML2ModelExecutor::expandInputs()
+{
+  // Figure out what our batch size is
+  std::vector<neml2::Tensor> defined;
+  for (const auto & [key, value] : _in)
+    defined.push_back(value);
+  const auto batch_shape = neml2::utils::broadcast_batch_sizes(defined);
+
+  // Make all inputs conformal
+  for (auto & [key, value] : _in)
+    if (value.batch_sizes() != batch_shape)
+      _in[key] = value.batch_unsqueeze(0).batch_expand(batch_shape);
+}
+
+void
 NEML2ModelExecutor::solve()
 {
   // Evaluate the NEML2 material model
   TIME_SECTION("NEML2 solve", 3, "Solving NEML2 material model");
-  std::tie(_out, _dout_din) = model().value_and_dvalue(_in);
+  if (scheduler())
+  {
+    // We only need consisent batch sizes if we are using the dispatcher
+    expandInputs();
+    neml2::ValueMapLoader loader(_in, 0);
+    std::tie(_out, _dout_din) = dispatcher()->run(loader);
+  }
+  else
+    std::tie(_out, _dout_din) = model().value_and_dvalue(_in);
   _in.clear();
 }
 

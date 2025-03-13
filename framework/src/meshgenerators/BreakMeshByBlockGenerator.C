@@ -45,6 +45,7 @@ BreakMeshByBlockGenerator::validParams()
       "interface_transition_name",
       "interface_transition",
       "the name of the interface transition boundary created when blocks are provided");
+  params.addParam<bool>("prepare_mesh", false, "Whether to prepare the mesh");
   return params;
 }
 
@@ -56,7 +57,8 @@ BreakMeshByBlockGenerator::BreakMeshByBlockGenerator(const InputParameters & par
     _add_transition_interface(getParam<bool>("add_transition_interface")),
     _split_transition_interface(getParam<bool>("split_transition_interface")),
     _interface_transition_name(getParam<BoundaryName>("interface_transition_name")),
-    _add_interface_on_two_sides(getParam<bool>("add_interface_on_two_sides"))
+    _add_interface_on_two_sides(getParam<bool>("add_interface_on_two_sides")),
+    _prepare_mesh(getParam<bool>("prepare_mesh"))
 {
   if (_block_pairs_restricted && _surrounding_blocks_restricted)
     paramError("block_pairs_restricted",
@@ -82,7 +84,8 @@ BreakMeshByBlockGenerator::generate()
     mooseError("BreakMeshByBlockGenerator is not implemented for distributed meshes");
 
   // Try to trick the rest of the world into thinking we're prepared
-  mesh->prepare_for_use();
+  if (!_prepare_mesh)
+    mesh->prepare_for_use();
 
   BoundaryInfo & boundary_info = mesh->get_boundary_info();
 
@@ -335,6 +338,13 @@ BreakMeshByBlockGenerator::generate()
 
   addInterfaceBoundary(*mesh);
   Partitioner::set_node_processor_ids(*mesh);
+
+  if (_prepare_mesh)
+  {
+    mesh->prepare_for_use();
+    mesh->set_isnt_prepared();
+  }
+
   return dynamic_pointer_cast<MeshBase>(mesh);
 }
 

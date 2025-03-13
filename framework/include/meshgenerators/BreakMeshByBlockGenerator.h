@@ -57,6 +57,8 @@ protected:
   const BoundaryName _interface_transition_name;
   /// whether to add two sides interface boundaries
   const bool _add_interface_on_two_sides;
+  /// whether to prepare the mesh
+  const bool _prepare_mesh;
 
 private:
   /// generate the new boundary interface

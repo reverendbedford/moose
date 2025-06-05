@@ -2,7 +2,7 @@
   [simple]
     type = SimpleScheduler
     batch_size = 5
-    device = 'cpu'
+    device = 'xpu'
   []
 []
 

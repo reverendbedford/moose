@@ -696,9 +696,10 @@ EigenProblem::formNorm()
   return getPostprocessorValueByName(*_bx_norm_name);
 }
 
+#endif
+
 std::string
 EigenProblem::solverTypeString(const unsigned int solver_sys_num)
 {
   return Moose::stringify(solverParams(solver_sys_num)._eigen_solve_type);
 }
-#endif

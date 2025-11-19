@@ -28,7 +28,9 @@ ComputeLagrangianStressBase::ComputeLagrangianStressBase(const InputParameters &
     _cauchy_stress(declareProperty<RankTwoTensor>(_base_name + "cauchy_stress")),
     _cauchy_jacobian(declareProperty<RankFourTensor>(_base_name + "cauchy_jacobian")),
     _pk1_stress(declareProperty<RankTwoTensor>(_base_name + "pk1_stress")),
-    _pk1_jacobian(declareProperty<RankFourTensor>(_base_name + "pk1_jacobian"))
+    _pk1_jacobian(declareProperty<RankFourTensor>(_base_name + "pk1_jacobian")),
+    _d_increment_d_I_minus_f_inv(
+        getMaterialPropertyByName<RankFourTensor>(_base_name + "d_increment_d_I_minus_f_inv"))
 {
 }
 

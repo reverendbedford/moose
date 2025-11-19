@@ -74,6 +74,14 @@ protected:
   /// If true stabilize the strains with F_bar
   const bool _stabilize_strain;
 
+  /// Types of objective integrations
+  enum class IncrementApproximation
+  {
+    Linear,
+    Quadratic,
+    Rashid
+  } _inc_type;
+
   // The eigenstrains
   std::vector<MaterialPropertyName> _eigenstrain_names;
   std::vector<const MaterialProperty<RankTwoTensor> *> _eigenstrains;
@@ -112,6 +120,9 @@ protected:
   MaterialProperty<RankTwoTensor> & _F_inv;
   /// Inverse incremental deformation gradient
   MaterialProperty<RankTwoTensor> & _f_inv;
+
+  /// Derivative of I-f_inv with respect to the approximation to the increment in the spatial velocity gradient
+  MaterialProperty<RankFourTensor> & _d_increment_d_I_minus_f_inv;
 
   /// Names of any extra homogenization gradients
   std::vector<MaterialPropertyName> _homogenization_gradient_names;

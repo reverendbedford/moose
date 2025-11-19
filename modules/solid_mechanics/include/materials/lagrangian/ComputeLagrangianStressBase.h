@@ -82,4 +82,7 @@ protected:
   MaterialProperty<RankTwoTensor> & _pk1_stress;
   /// The derivative of the 1st PK stress wrt the deformation gradient
   MaterialProperty<RankFourTensor> & _pk1_jacobian;
+
+  /// The derivative of the increment in the spatial velocity gradient wrt I - f^-1
+  const MaterialProperty<RankFourTensor> & _d_increment_d_I_minus_f_inv;
 };

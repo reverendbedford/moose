@@ -19,6 +19,12 @@ ComputeLagrangianStrainBase<G>::baseParams()
   params.addParam<bool>(
       "large_kinematics", false, "Use large displacement kinematics in the kernel.");
   params.addParam<bool>("stabilize_strain", false, "Average the volumetric strains");
+
+  MooseEnum increment_approximation("linear quadratic rashid", "linear");
+  params.addParam<MooseEnum>("increment_approximation",
+                             increment_approximation,
+                             "How to approximate the increment in the deformation over the step");
+
   params.addParam<std::vector<MaterialPropertyName>>(
       "eigenstrain_names", {}, "List of eigenstrains to account for");
   params.addParam<std::vector<MaterialPropertyName>>(
@@ -43,6 +49,7 @@ ComputeLagrangianStrainBase<G>::ComputeLagrangianStrainBase(const InputParameter
     _base_name(isParamValid("base_name") ? getParam<std::string>("base_name") + "_" : ""),
     _large_kinematics(getParam<bool>("large_kinematics")),
     _stabilize_strain(getParam<bool>("stabilize_strain")),
+    _inc_type(getParam<MooseEnum>("increment_approximation").getEnum<IncrementApproximation>()),
     _eigenstrain_names(getParam<std::vector<MaterialPropertyName>>("eigenstrain_names")),
     _eigenstrains(_eigenstrain_names.size()),
     _eigenstrains_old(_eigenstrain_names.size()),
@@ -60,6 +67,8 @@ ComputeLagrangianStrainBase<G>::ComputeLagrangianStrainBase(const InputParameter
     _F_old(getMaterialPropertyOld<RankTwoTensor>(_base_name + "deformation_gradient")),
     _F_inv(declareProperty<RankTwoTensor>(_base_name + "inverse_deformation_gradient")),
     _f_inv(declareProperty<RankTwoTensor>(_base_name + "inverse_incremental_deformation_gradient")),
+    _d_increment_d_I_minus_f_inv(
+        declareProperty<RankFourTensor>(_base_name + "d_increment_d_I_minus_f_inv")),
     _homogenization_gradient_names(
         getParam<std::vector<MaterialPropertyName>>("homogenization_gradient_names")),
     _homogenization_contributions(_homogenization_gradient_names.size()),
@@ -118,7 +127,35 @@ ComputeLagrangianStrainBase<G>::computeQpProperties()
   {
     _F_inv[_qp] = _F[_qp].inverse();
     _f_inv[_qp] = _F_old[_qp] * _F_inv[_qp];
-    dL = RankTwoTensor::Identity() - _f_inv[_qp];
+    auto Imf = RankTwoTensor::Identity() - _f_inv[_qp];
+    if (_inc_type == IncrementApproximation::Linear)
+    {
+      dL = Imf;
+      _d_increment_d_I_minus_f_inv[_qp] = RankFourTensor::Identity();
+    }
+    else if (_inc_type == IncrementApproximation::Quadratic)
+    {
+      usingTensorIndices(i, j, k, l);
+      dL = Imf + 0.5 * Imf * Imf;
+      _d_increment_d_I_minus_f_inv[_qp] =
+          RankFourTensor::Identity() + 0.5 * (RankTwoTensor::Identity().times<i, k, l, j>(Imf) +
+                                              RankTwoTensor::Identity().times<j, l, i, k>(Imf));
+    }
+    else if (_inc_type == IncrementApproximation::Rashid)
+    {
+      // Annoyingly Rashid uses a second order approximation to C^-1, not f^-1
+      // Effectively his approximation of the strain increment is fourth order in f^-1
+      // He doesn't bother defining an "equivalent" approximation for the skew-symmetric
+      // part, so we just use the quadratic one for that
+      auto quad = Imf + 0.5 * Imf * Imf;
+      auto rashid = Imf * Imf.transpose() - Imf - Imf.transpose();
+      auto dd_approx = -0.5 * rashid + 0.25 * rashid * rashid;
+      dL = 0.5 * (quad - quad.transpose()) + dd_approx;
+
+      _d_increment_d_I_minus_f_inv[_qp] = RankFourTensor::Identity();
+    }
+    else
+      mooseError("Internal error: increment approximation.");
   }
   // For small deformations we just provide the identity
   else
@@ -126,6 +163,7 @@ ComputeLagrangianStrainBase<G>::computeQpProperties()
     _F_inv[_qp] = RankTwoTensor::Identity();
     _f_inv[_qp] = RankTwoTensor::Identity();
     dL = _F[_qp] - _F_old[_qp];
+    _d_increment_d_I_minus_f_inv[_qp] = RankFourTensor::Identity();
   }
 
   computeQpIncrementalStrains(dL);

@@ -1,0 +1,55 @@
+[Tests]
+  issues = '#XXXXXX'
+  design = 'XXX'
+  [linear_1_jaumann]
+    type = CSVDiff
+    input = 'input.i'
+    cli_args = 'Materials/compute_strain/increment_approximation=linear Materials/compute_strain/alpha=1.0 Materials/compute_stress/objective_rate=jaumann Outputs/out/file_base=linear_1_jaumann'
+    csvdiff = 'linear_1_jaumann.csv'
+    requirement = "Combination of increment approximation, generalized midpoint rule alpha, and objective rate convergences quadratically"
+    abs_zero = 1e-6
+  []
+  [linear_0.5_jaumann]
+    type = CSVDiff
+    input = 'input.i'
+    cli_args = 'Materials/compute_strain/increment_approximation=linear Materials/compute_strain/alpha=0.5 Materials/compute_stress/objective_rate=jaumann Outputs/out/file_base=linear_0.5_jaumann'
+    csvdiff = 'linear_0.5_jaumann.csv'
+    requirement = "Combination of increment approximation, generalized midpoint rule alpha, and objective rate convergences quadratically"
+    abs_zero = 1e-6
+  []
+
+  [quadratic_1_jaumann]
+    type = CSVDiff
+    input = 'input.i'
+    cli_args = 'Materials/compute_strain/increment_approximation=quadratic Materials/compute_strain/alpha=1.0 Materials/compute_stress/objective_rate=jaumann Outputs/out/file_base=quadratic_1_jaumann'
+    csvdiff = 'quadratic_1_jaumann.csv'
+    requirement = "Combination of increment approximation, generalized midpoint rule alpha, and objective rate convergences quadratically"
+    abs_zero = 1e-6
+  []
+  [quadratic_0.5_jaumann]
+    type = CSVDiff
+    input = 'input.i'
+    cli_args = 'Materials/compute_strain/increment_approximation=quadratic Materials/compute_strain/alpha=0.5 Materials/compute_stress/objective_rate=jaumann Outputs/out/file_base=quadratic_0.5_jaumann'
+    csvdiff = 'quadratic_0.5_jaumann.csv'
+    requirement = "Combination of increment approximation, generalized midpoint rule alpha, and objective rate convergences quadratically"
+    abs_zero = 1e-6
+  []
+
+  [rashid_1_jaumann]
+    type = CSVDiff
+    input = 'input.i'
+    cli_args = 'Materials/compute_strain/increment_approximation=rashid Materials/compute_strain/alpha=1.0 Materials/compute_stress/objective_rate=jaumann Outputs/out/file_base=rashid_1_jaumann'
+    csvdiff = 'rashid_1_jaumann.csv'
+    requirement = "Combination of increment approximation, generalized midpoint rule alpha, and objective rate convergences quadratically"
+    abs_zero = 1e-6
+  []
+  [rashid_0.5_jaumann]
+    type = CSVDiff
+    input = 'input.i'
+    cli_args = 'Materials/compute_strain/increment_approximation=rashid Materials/compute_strain/alpha=0.5 Materials/compute_stress/objective_rate=jaumann Outputs/out/file_base=rashid_0.5_jaumann'
+    csvdiff = 'rashid_0.5_jaumann.csv'
+    requirement = "Combination of increment approximation, generalized midpoint rule alpha, and objective rate convergences quadratically"
+    abs_zero = 1e-6
+  []
+
+[]

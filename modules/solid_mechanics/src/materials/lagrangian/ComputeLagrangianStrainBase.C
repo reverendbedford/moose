@@ -25,6 +25,8 @@ ComputeLagrangianStrainBase<G>::baseParams()
                              increment_approximation,
                              "How to approximate the increment in the deformation over the step");
 
+  params.addParam<Real>("alpha", 1.0, "Generalized midpoint rule parameter");
+
   params.addParam<std::vector<MaterialPropertyName>>(
       "eigenstrain_names", {}, "List of eigenstrains to account for");
   params.addParam<std::vector<MaterialPropertyName>>(
@@ -46,10 +48,14 @@ ComputeLagrangianStrainBase<G>::ComputeLagrangianStrainBase(const InputParameter
     _ndisp(coupledComponents("displacements")),
     _disp(coupledValues("displacements")),
     _grad_disp(coupledGradients("displacements")),
+    _disp_old(coupledValuesOld("displacements")),
+    _grad_disp_old(coupledGradientsOld("displacements")),
     _base_name(isParamValid("base_name") ? getParam<std::string>("base_name") + "_" : ""),
     _large_kinematics(getParam<bool>("large_kinematics")),
     _stabilize_strain(getParam<bool>("stabilize_strain")),
-    _inc_type(getParam<MooseEnum>("increment_approximation").getEnum<IncrementApproximation>()),
+    _inc_type(
+        getParam<MooseEnum>("increment_approximation").template getEnum<IncrementApproximation>()),
+    _alpha(getParam<Real>("alpha")),
     _eigenstrain_names(getParam<std::vector<MaterialPropertyName>>("eigenstrain_names")),
     _eigenstrains(_eigenstrain_names.size()),
     _eigenstrains_old(_eigenstrain_names.size()),
@@ -211,8 +217,9 @@ ComputeLagrangianStrainBase<G>::computeQpUnstabilizedDeformationGradient()
   for (auto component : make_range(_ndisp))
     G::addGradOp(_F_ust[_qp],
                  component,
-                 (*_grad_disp[component])[_qp],
-                 (*_disp[component])[_qp],
+                 (*_grad_disp[component])[_qp] * _alpha +
+                     (*_grad_disp_old[component])[_qp] * (1.0 - _alpha),
+                 (*_disp[component])[_qp] * _alpha + (*_disp_old[component])[_qp] * (1.0 - _alpha),
                  _q_point[_qp]);
 }
 

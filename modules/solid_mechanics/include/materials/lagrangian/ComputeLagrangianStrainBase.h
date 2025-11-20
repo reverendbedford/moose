@@ -65,6 +65,10 @@ protected:
   std::vector<const VariableValue *> _disp;
   std::vector<const VariableGradient *> _grad_disp;
 
+  /// Old displacements and gradients
+  std::vector<const VariableValue *> _disp_old;
+  std::vector<const VariableGradient *> _grad_disp_old;
+
   /// Material system base name
   const std::string _base_name;
 
@@ -81,6 +85,9 @@ protected:
     Quadratic,
     Rashid
   } _inc_type;
+
+  /// Generalized midpoint rule parameter
+  const Real _alpha;
 
   // The eigenstrains
   std::vector<MaterialPropertyName> _eigenstrain_names;

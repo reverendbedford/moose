@@ -108,11 +108,12 @@ G = 5000
   []
   [compute_stress]
     type = ComputeLagrangianLinearElasticStress
-    objective_rate = jaumann
+    objective_rate = rashid
   []
   [compute_strain]
     type = ComputeLagrangianStrain
     increment_approximation = rashid
+    alpha = 1.0
   []
 []
 

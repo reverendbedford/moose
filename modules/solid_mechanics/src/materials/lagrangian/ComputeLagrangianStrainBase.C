@@ -48,8 +48,11 @@ ComputeLagrangianStrainBase<G>::ComputeLagrangianStrainBase(const InputParameter
     _ndisp(coupledComponents("displacements")),
     _disp(coupledValues("displacements")),
     _grad_disp(coupledGradients("displacements")),
-    _disp_old(coupledValuesOld("displacements")),
-    _grad_disp_old(coupledGradientsOld("displacements")),
+    _disp_old(_fe_problem.isTransient() ? coupledValuesOld("displacements")
+                                        : std::vector<const VariableValue *>(3, &_zero)),
+    _grad_disp_old((_fe_problem.isTransient()
+                        ? coupledGradientsOld("displacements")
+                        : std::vector<const VariableGradient *>(3, &_grad_zero))),
     _base_name(isParamValid("base_name") ? getParam<std::string>("base_name") + "_" : ""),
     _large_kinematics(getParam<bool>("large_kinematics")),
     _stabilize_strain(getParam<bool>("stabilize_strain")),

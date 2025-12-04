@@ -61,6 +61,9 @@ protected:
   /// Provided for material models that use the strain increment
   const MaterialProperty<RankTwoTensor> & _strain_increment;
 
+  /// Provided for models that use the increment in the spatial velocity gradient
+  const MaterialProperty<RankTwoTensor> & _spatial_velocity_gradient_increment;
+
   /// Provided for material models that use the vorticity increment
   const MaterialProperty<RankTwoTensor> & _vorticity_increment;
 
@@ -75,7 +78,8 @@ protected:
   {
     Truesdell,
     Jaumann,
-    GreenNaghdi
+    GreenNaghdi,
+    Rashid
   } _rate;
 
   /// Whether we need to perform polar decomposition
@@ -95,13 +99,16 @@ protected:
 
 private:
   /// Objective update using the Truesdell rate
-  RankTwoTensor objectiveUpdateTruesdell(const RankTwoTensor & dS);
+  std::tuple<RankTwoTensor, RankFourTensor> objectiveUpdateTruesdell(const RankTwoTensor & dS);
 
-  /// Objective update using the Jaumann rate
-  RankTwoTensor objectiveUpdateJaumann(const RankTwoTensor & dS);
+  /// Objective update using the Jaumann rat
+  std::tuple<RankTwoTensor, RankFourTensor> objectiveUpdateJaumann(const RankTwoTensor & dS);
 
   /// Objective update using the Green-Naghdi rate
-  RankTwoTensor objectiveUpdateGreenNaghdi(const RankTwoTensor & dS);
+  std::tuple<RankTwoTensor, RankFourTensor> objectiveUpdateGreenNaghdi(const RankTwoTensor & dS);
+
+  /// Objective update using the Rashid rate
+  std::tuple<RankTwoTensor, RankFourTensor> objectiveUpdateRashid(const RankTwoTensor & dS);
 
   /// Advect the stress using the provided kinematic tensor
   std::tuple<RankTwoTensor, RankFourTensor> advectStress(const RankTwoTensor & S0,
@@ -117,5 +124,5 @@ private:
   RankFourTensor cauchyJacobian(const RankFourTensor & Jinv, const RankFourTensor & U) const;
 
   /// Perform polar decomposition
-  void polarDecomposition();
+  void polarDecomposition(bool incremental = false);
 };

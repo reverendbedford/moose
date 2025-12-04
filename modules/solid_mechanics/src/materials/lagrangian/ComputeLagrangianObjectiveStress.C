@@ -18,7 +18,7 @@ ComputeLagrangianObjectiveStress::validParams()
 
   params.addClassDescription("Stress update based on the small (engineering) stress");
 
-  MooseEnum objectiveRate("truesdell jaumann green_naghdi", "truesdell");
+  MooseEnum objectiveRate("truesdell jaumann green_naghdi rashid", "truesdell");
   params.addParam<MooseEnum>(
       "objective_rate", objectiveRate, "Which type of objective integration to use");
 
@@ -34,12 +34,14 @@ ComputeLagrangianObjectiveStress::ComputeLagrangianObjectiveStress(
     _cauchy_stress_old(getMaterialPropertyOld<RankTwoTensor>(_base_name + "cauchy_stress")),
     _mechanical_strain(getMaterialPropertyByName<RankTwoTensor>(_base_name + "mechanical_strain")),
     _strain_increment(getMaterialPropertyByName<RankTwoTensor>(_base_name + "strain_increment")),
+    _spatial_velocity_gradient_increment(
+        getMaterialPropertyByName<RankTwoTensor>(_base_name + "spatial_velocity_increment")),
     _vorticity_increment(
         getMaterialPropertyByName<RankTwoTensor>(_base_name + "vorticity_increment")),
     _def_grad(getMaterialPropertyByName<RankTwoTensor>(_base_name + "deformation_gradient")),
     _def_grad_old(getMaterialPropertyOldByName<RankTwoTensor>(_base_name + "deformation_gradient")),
     _rate(getParam<MooseEnum>("objective_rate").getEnum<ObjectiveRate>()),
-    _polar_decomp(_rate == ObjectiveRate::GreenNaghdi),
+    _polar_decomp(_rate == ObjectiveRate::GreenNaghdi || _rate == ObjectiveRate::Rashid),
     _rotation(_polar_decomp ? &declareProperty<RankTwoTensor>(_base_name + "rotation") : nullptr),
     _rotation_old(_polar_decomp ? &getMaterialPropertyOld<RankTwoTensor>(_base_name + "rotation")
                                 : nullptr),
@@ -79,54 +81,48 @@ ComputeLagrangianObjectiveStress::computeQpCauchyStress()
     RankTwoTensor dS = _small_stress[_qp] - _small_stress_old[_qp];
 
     if (_rate == ObjectiveRate::Truesdell)
-      _cauchy_stress[_qp] = objectiveUpdateTruesdell(dS);
+      std::tie(_cauchy_stress[_qp], _cauchy_jacobian[_qp]) = objectiveUpdateTruesdell(dS);
     else if (_rate == ObjectiveRate::Jaumann)
-      _cauchy_stress[_qp] = objectiveUpdateJaumann(dS);
+      std::tie(_cauchy_stress[_qp], _cauchy_jacobian[_qp]) = objectiveUpdateJaumann(dS);
     else if (_rate == ObjectiveRate::GreenNaghdi)
-      _cauchy_stress[_qp] = objectiveUpdateGreenNaghdi(dS);
+      std::tie(_cauchy_stress[_qp], _cauchy_jacobian[_qp]) = objectiveUpdateGreenNaghdi(dS);
+    else if (_rate == ObjectiveRate::Rashid)
+      std::tie(_cauchy_stress[_qp], _cauchy_jacobian[_qp]) = objectiveUpdateRashid(dS);
     else
       mooseError("Internal error: unsupported objective rate.");
   }
 }
 
-RankTwoTensor
+std::tuple<RankTwoTensor, RankFourTensor>
 ComputeLagrangianObjectiveStress::objectiveUpdateTruesdell(const RankTwoTensor & dS)
 {
-  // Get the kinematic tensor
-  RankTwoTensor dL = RankTwoTensor::Identity() - _inv_df[_qp];
-
   // Update the Cauchy stress
-  auto [S, Jinv] = advectStress(_cauchy_stress_old[_qp] + dS, dL);
+  auto [S, Jinv] =
+      advectStress(_cauchy_stress_old[_qp] + dS, _spatial_velocity_gradient_increment[_qp]);
 
   // Get the appropriate tangent tensor
   RankFourTensor U = stressAdvectionDerivative(S);
-  _cauchy_jacobian[_qp] = cauchyJacobian(Jinv, U);
 
-  return S;
+  return {S, cauchyJacobian(Jinv, U)};
 }
 
-RankTwoTensor
+std::tuple<RankTwoTensor, RankFourTensor>
 ComputeLagrangianObjectiveStress::objectiveUpdateJaumann(const RankTwoTensor & dS)
 {
   usingTensorIndices(i, j, k, l);
 
-  // Get the kinematic tensor
-  RankTwoTensor dL = RankTwoTensor::Identity() - _inv_df[_qp];
-  RankTwoTensor dW = 0.5 * (dL - dL.transpose());
-
   // Update the Cauchy stress
-  auto [S, Jinv] = advectStress(_cauchy_stress_old[_qp] + dS, dW);
+  auto [S, Jinv] = advectStress(_cauchy_stress_old[_qp] + dS, _vorticity_increment[_qp]);
 
   // Get the appropriate tangent tensor
   RankTwoTensor I = RankTwoTensor::Identity();
   RankFourTensor ddW_ddL = 0.5 * (I.times<i, k, j, l>(I) - I.times<i, l, j, k>(I));
   RankFourTensor U = stressAdvectionDerivative(S) * ddW_ddL;
-  _cauchy_jacobian[_qp] = cauchyJacobian(Jinv, U);
 
-  return S;
+  return {S, cauchyJacobian(Jinv, U)};
 }
 
-RankTwoTensor
+std::tuple<RankTwoTensor, RankFourTensor>
 ComputeLagrangianObjectiveStress::objectiveUpdateGreenNaghdi(const RankTwoTensor & dS)
 {
   usingTensorIndices(i, j, k, l, m);
@@ -148,9 +144,27 @@ ComputeLagrangianObjectiveStress::objectiveUpdateGreenNaghdi(const RankTwoTensor
   RankFourTensor d_dO_d_dL =
       T.times<m, j, i, m, k, l>(d_R_d_F * d_F_d_dL) - dR.times<i, k, j, l>(I);
   RankFourTensor U = stressAdvectionDerivative(S) * d_dO_d_dL;
-  _cauchy_jacobian[_qp] = cauchyJacobian(Jinv, U);
 
-  return S;
+  return {S, cauchyJacobian(Jinv, U)};
+}
+
+std::tuple<RankTwoTensor, RankFourTensor>
+ComputeLagrangianObjectiveStress::objectiveUpdateRashid(const RankTwoTensor & dS)
+{
+  usingTensorIndices(i, j, k, l, m);
+
+  // Rashid does a nonlinear update of the form sigma_new = r (sigma_old + dS) r^T
+  // with r = R_new R_old^T
+  polarDecomposition(true);
+  RankTwoTensor dR = (*_rotation)[_qp];
+
+  auto S = dR * (_cauchy_stress_old[_qp] + dS) * dR.transpose();
+
+  // RankFourTensor Jinv = dR.times<i, k, j, l>(dR);
+  //  WIP
+  auto jac = RankFourTensor::Identity();
+
+  return {S, jac};
 }
 
 std::tuple<RankTwoTensor, RankFourTensor>
@@ -188,12 +202,18 @@ ComputeLagrangianObjectiveStress::cauchyJacobian(const RankFourTensor & Jinv,
 }
 
 void
-ComputeLagrangianObjectiveStress::polarDecomposition()
+ComputeLagrangianObjectiveStress::polarDecomposition(bool incremental)
 {
-  FactorizedRankTwoTensor C = _def_grad[_qp].transpose() * _def_grad[_qp];
+  RankTwoTensor use_F;
+  if (incremental)
+    use_F = _def_grad[_qp] * _def_grad_old[_qp].inverse();
+  else
+    use_F = _def_grad[_qp];
+
+  FactorizedRankTwoTensor C = use_F.transpose() * use_F;
   (*_stretch)[_qp] = MathUtils::sqrt(C).get();
   RankTwoTensor Uinv = MathUtils::sqrt(C).inverse().get();
-  (*_rotation)[_qp] = _def_grad[_qp] * Uinv;
+  (*_rotation)[_qp] = use_F * Uinv;
 
   // Derivative of rotation w.r.t. the deformation gradient
   RankTwoTensor I = RankTwoTensor::Identity();

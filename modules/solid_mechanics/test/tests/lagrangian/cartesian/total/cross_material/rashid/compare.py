@@ -7,6 +7,6 @@ if __name__ == "__main__":
 
     for i in range(3):
         (l,) = plt.plot(gn[:, 0], gn[:, i + 1], label=f"{i}")
-        plt.plot(ra[:, 0], ra[:, i + 1], ls="--", color=l.get_color())
+        plt.plot(ra[:, 0], ra[:, i + 1], ls="--", color=l.get_color(), lw = 5, alpha = 0.75)
 
     plt.show()

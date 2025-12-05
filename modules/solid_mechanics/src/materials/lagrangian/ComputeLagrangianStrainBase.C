@@ -20,7 +20,7 @@ ComputeLagrangianStrainBase<G>::baseParams()
       "large_kinematics", false, "Use large displacement kinematics in the kernel.");
   params.addParam<bool>("stabilize_strain", false, "Average the volumetric strains");
 
-  MooseEnum increment_approximation("linear quadratic rashid", "linear");
+  MooseEnum increment_approximation("linear quadratic rashid_approximate rashid_eigen", "linear");
   params.addParam<MooseEnum>("increment_approximation",
                              increment_approximation,
                              "How to approximate the increment in the deformation over the step");
@@ -75,9 +75,17 @@ ComputeLagrangianStrainBase<G>::ComputeLagrangianStrainBase(const InputParameter
     _F(declareProperty<RankTwoTensor>(_base_name + "deformation_gradient")),
     _F_old(getMaterialPropertyOld<RankTwoTensor>(_base_name + "deformation_gradient")),
     _F_inv(declareProperty<RankTwoTensor>(_base_name + "inverse_deformation_gradient")),
+    _f(declareProperty<RankTwoTensor>(_base_name + "incremental_deformation_gradient")),
     _f_inv(declareProperty<RankTwoTensor>(_base_name + "inverse_incremental_deformation_gradient")),
     _d_increment_d_I_minus_f_inv(
         declareProperty<RankFourTensor>(_base_name + "d_increment_d_I_minus_f_inv")),
+    _R(declareProperty<RankTwoTensor>(_base_name + "rotation_F")),
+    _U(declareProperty<RankTwoTensor>(_base_name + "stretch_F")),
+    _d_R_d_F(declareProperty<RankFourTensor>(_base_name + "d_rotation_F_d_deformation_gradient")),
+    _r(declareProperty<RankTwoTensor>(_base_name + "incremental_rotation")),
+    _u(declareProperty<RankTwoTensor>(_base_name + "incremental_stretch")),
+    _d_r_d_f(declareProperty<RankFourTensor>(
+        _base_name + "d_incremental_rotation_d_incremental_deformation_gradient")),
     _homogenization_gradient_names(
         getParam<std::vector<MaterialPropertyName>>("homogenization_gradient_names")),
     _homogenization_contributions(_homogenization_gradient_names.size()),
@@ -136,6 +144,11 @@ ComputeLagrangianStrainBase<G>::computeQpProperties()
   {
     _F_inv[_qp] = _F[_qp].inverse();
     _f_inv[_qp] = _F_old[_qp] * _F_inv[_qp];
+    _f[_qp] = _f_inv[_qp].inverse();
+
+    // Calculate required polar decompositions
+    computePolarDecompositions();
+
     auto Imf = RankTwoTensor::Identity() - _f_inv[_qp];
     if (_inc_type == IncrementApproximation::Linear)
     {
@@ -150,7 +163,7 @@ ComputeLagrangianStrainBase<G>::computeQpProperties()
           RankFourTensor::Identity() + 0.5 * (RankTwoTensor::Identity().times<i, k, l, j>(Imf) +
                                               RankTwoTensor::Identity().times<j, l, i, k>(Imf));
     }
-    else if (_inc_type == IncrementApproximation::Rashid)
+    else if (_inc_type == IncrementApproximation::RashidApproximate)
     {
       // Annoyingly Rashid uses a second order approximation to C^-1, not f^-1
       // Effectively his approximation of the strain increment is fourth order in f^-1
@@ -163,6 +176,10 @@ ComputeLagrangianStrainBase<G>::computeQpProperties()
 
       _d_increment_d_I_minus_f_inv[_qp] = RankFourTensor::Identity();
     }
+    else if (_inc_type == IncrementApproximation::RashidEigen)
+    {
+      dL = _log_u + _log_r;
+    }
     else
       mooseError("Internal error: increment approximation.");
   }
@@ -171,6 +188,11 @@ ComputeLagrangianStrainBase<G>::computeQpProperties()
   {
     _F_inv[_qp] = RankTwoTensor::Identity();
     _f_inv[_qp] = RankTwoTensor::Identity();
+    _f[_qp] = RankTwoTensor::Identity();
+
+    // These will just be the identify, but we still need them if requested by other models
+    computePolarDecompositions();
+
     dL = _F[_qp] - _F_old[_qp];
     _d_increment_d_I_minus_f_inv[_qp] = RankFourTensor::Identity();
   }
@@ -254,6 +276,60 @@ ComputeLagrangianStrainBase<G>::computeDeformationGradient()
         _F[_qp] += (F_avg.trace() - _F[_qp].trace()) * RankTwoTensor::Identity() / 3.0;
     }
   }
+}
+
+template <class G>
+void
+ComputeLagrangianStrainBase<G>::computePolarDecompositions()
+{
+  // Go back and only compute these if required
+  if (_large_kinematics)
+  {
+    std::tie(_R[_qp], _U[_qp]) = computePolarDecomposition(_F[_qp]);
+    _d_R_d_F[_qp] = computePolarDecompositionDerivative(_R[_qp], _U[_qp]);
+    std::tie(_r[_qp], _u[_qp]) = computePolarDecomposition(_f[_qp], true);
+    _d_r_d_f[_qp] = computePolarDecompositionDerivative(_r[_qp], _u[_qp]);
+  }
+  else
+  {
+    _R[_qp] = RankTwoTensor::Identity();
+    _U[_qp] = RankTwoTensor::Identity();
+    _r[_qp] = RankTwoTensor::Identity();
+    _u[_qp] = RankTwoTensor::Identity();
+  }
+}
+
+template <class G>
+std::tuple<RankTwoTensor, RankTwoTensor>
+ComputeLagrangianStrainBase<G>::computePolarDecomposition(const RankTwoTensor & A, bool store_log)
+{
+  FactorizedRankTwoTensor C = A.transpose() * A;
+  auto U = MathUtils::sqrt(C).get();
+  auto Uinv = MathUtils::sqrt(C).inverse().get();
+  auto R = A * Uinv;
+
+  if (store_log)
+  {
+    _log_u = MathUtils::log(MathUtils::sqrt(C)).get();
+    /// Ugh fix
+    _log_r = RankTwoTensor::Identity() * 0;
+  }
+
+  return {R, U};
+}
+
+template <class G>
+RankFourTensor
+ComputeLagrangianStrainBase<G>::computePolarDecompositionDerivative(const RankTwoTensor & R,
+                                                                    const RankTwoTensor & U)
+{
+  // Derivative of rotation w.r.t. the deformation gradient
+  RankTwoTensor I = RankTwoTensor::Identity();
+  RankTwoTensor Y = U.trace() * I - U;
+  RankTwoTensor Z = R * Y;
+  RankTwoTensor O = Z * R.transpose();
+  usingTensorIndices(i, j, k, l);
+  return (O.times<i, k, l, j>(Y) - Z.times<i, l, k, j>(Z)) / Y.det();
 }
 
 template class ComputeLagrangianStrainBase<GradientOperatorCartesian>;

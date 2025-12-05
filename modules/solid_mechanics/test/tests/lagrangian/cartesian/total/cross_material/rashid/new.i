@@ -112,7 +112,7 @@ G = 5000
   []
   [compute_strain]
     type = ComputeLagrangianStrain
-    increment_approximation = rashid
+    increment_approximation = rashid_eigen
     alpha = 1.0
   []
 []

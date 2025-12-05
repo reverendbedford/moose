@@ -59,6 +59,8 @@ protected:
   virtual void computeQpUnstabilizedDeformationGradient();
   /// Calculate the unstabilized and optionally the stabilized deformation gradients
   virtual void computeDeformationGradient();
+  /// Calculate the required polar decompositions
+  virtual void computePolarDecompositions();
 
   // Displacements and displacement gradients
   const unsigned int _ndisp;
@@ -83,7 +85,8 @@ protected:
   {
     Linear,
     Quadratic,
-    Rashid
+    RashidApproximate,
+    RashidEigen
   } _inc_type;
 
   /// Generalized midpoint rule parameter
@@ -125,11 +128,33 @@ protected:
 
   /// Inverse deformation gradient
   MaterialProperty<RankTwoTensor> & _F_inv;
+
+  /// Incremental deformation gradient
+  MaterialProperty<RankTwoTensor> & _f;
+
   /// Inverse incremental deformation gradient
   MaterialProperty<RankTwoTensor> & _f_inv;
 
   /// Derivative of I-f_inv with respect to the approximation to the increment in the spatial velocity gradient
   MaterialProperty<RankFourTensor> & _d_increment_d_I_minus_f_inv;
+
+  /// Polar decomposition of F, rotation
+  MaterialProperty<RankTwoTensor> & _R;
+
+  /// Polar decomposition of R, stretch
+  MaterialProperty<RankTwoTensor> & _U;
+
+  /// Derivative of rotation with respect to deformation gradient
+  MaterialProperty<RankFourTensor> & _d_R_d_F;
+
+  /// Polar decomposition of f, rotation
+  MaterialProperty<RankTwoTensor> & _r;
+
+  /// Polar decomposition of f, stretch
+  MaterialProperty<RankTwoTensor> & _u;
+
+  /// Derivative of r with respect to incremental deformation gradient
+  MaterialProperty<RankFourTensor> & _d_r_d_f;
 
   /// Names of any extra homogenization gradients
   std::vector<MaterialPropertyName> _homogenization_gradient_names;
@@ -137,6 +162,15 @@ protected:
   /// Actual homogenization contributions
   std::vector<const MaterialProperty<RankTwoTensor> *> _homogenization_contributions;
 
-  /// Rotation increment for "old" materials inheriting from ComputeStressBase
+  /// Rotation increment for "old" materials inheriting from ComputeStressBase -- only required for compatibility
   MaterialProperty<RankTwoTensor> & _rotation_increment;
+
+private:
+  std::tuple<RankTwoTensor, RankTwoTensor> computePolarDecomposition(const RankTwoTensor & A,
+                                                                     bool store_log = false);
+  RankFourTensor computePolarDecompositionDerivative(const RankTwoTensor & R,
+                                                     const RankTwoTensor & U);
+  /// We need this for the eigen method
+  RankTwoTensor _log_u;
+  RankTwoTensor _log_r;
 };

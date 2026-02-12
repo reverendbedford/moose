@@ -412,8 +412,8 @@ QuasiStaticSolidMechanicsPhysics::act()
     if (_lk_homogenization)
     {
       InputParameters params = _factory.getValidParams("MooseVariable");
-      const std::map<bool, std::vector<unsigned int>> mg_order_max{{true, {1, 4, 9}},
-                                                                   {false, {1, 3, 6}}};
+      const std::map<bool, std::vector<unsigned int>> mg_order_max{{true, {1, 5, 9}},
+                                                                   {false, {1, 4, 6}}};
       std::size_t mg_order = 0;
       for (auto i : index_range(_constraint_types))
       {

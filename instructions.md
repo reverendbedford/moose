@@ -321,3 +321,31 @@ Physical outcome: max contact pressure ~5.6e5 (elastic Hertz predicts 4.8e5; pla
 No new C++ classes introduced — pure input-side extension of the Commit 2 template.
 
 Deviations: none from the (already-mortar-pivoted) plan.
+
+### Commit 4 — Large-deformation inelastic Hertz
+
+Shipped:
+- New regression test at `modules/contact/test/tests/rigid_body_contact/hertz_sphere_inelastic_finite/`. Same mesh + rigid-indenter approximation + contact objects + plasticity constitutive as Commit 3, but:
+  - `large_kinematics = true` in `GlobalParams`.
+  - `use_displaced_mesh = true` on the three mortar constraints so the mortar-segment mesh sees current-config positions of both bodies.
+  - `objective_rate = truesdell` on the wrapped stress (advances Cauchy stress consistently with F).
+  - Indentation ramped to δ = 0.05 (5x the small-strain tests) to actually exercise finite-strain kinematics.
+- Uses `TotalLagrangianStressDivergenceAxisymmetricCylindrical` because the UpdatedLagrangian family in solid_mechanics has no axisymmetric variant. TL with `large_kinematics = true` is the same "new-Lagrangian" family and is fully large-deformation correct; the plan's "UpdatedLagrangian" was one option, not a strict requirement.
+
+Physical outcome: max contact pressure ~8.5e5 at δ = 0.05, max effective plastic strain ~17.2%. Newton iterations per step scale from 3 (early, mostly elastic) to 8-11 (late, deeply plastic + heavy remortaring), average 6.6 iterations/step over 10 load steps. All steps converge without dt cutbacks.
+
+Deviations from plan: swapped UL → TL-with-large-kinematics for the axisymmetric case; documented rationale above. `use_displaced_mesh = true` on the mortar constraints was already anticipated in the plan.
+
+---
+
+## Phase 1 complete
+
+Three regression tests pass on `contact-opt`, all under `modules/contact/test/tests/rigid_body_contact/`:
+
+1. `hertz_sphere_elastic` — rigid sphere on elastic half-space (2D axisymmetric, small strain).
+2. `hertz_sphere_inelastic` — same geometry, J2 radial-return plasticity, small strain; avg 1.2 Newton iters/step.
+3. `hertz_sphere_inelastic_finite` — same geometry, J2 plasticity, large deformation (δ = 0.05, plastic strain ~17%); avg 6.6 Newton iters/step.
+
+All three use the existing MOOSE mortar-mechanical-contact stack with `SNESVINEWTONSSLS` + `ConstantBounds` on the LM variable. No new C++ classes were introduced by Commits 2-4 (all are input-only extensions).
+
+**Waiting for user input before moving to Phase 2.**

@@ -304,3 +304,20 @@ Analytic geometry classes (`LevelSetContactor`, `SphereContactor`, `LevelSetCont
 Deviations from plan documented here:
 - Dropped the `LowerDIntegratedBC` / `use_dual` lower-d-block LM path. It is not viable for this problem shape; the mortar path is a strictly better fit.
 - Dropped the `LevelSetContactor`-drives-contact-BC part of the plan. The class hierarchy is now purely a geometry-primitive library.
+
+### Cleanup — Removed unused analytic contactor code
+
+Deleted `LevelSetContactor` + `SphereContactor` + `LevelSetContactorAux` and Commit 1's regression test. They were designed to drive contact through the abandoned `LowerDIntegratedBC` path and are dead weight in the mortar-based setup.
+
+### Commit 3 — Inelastic small-strain Hertz
+
+Shipped:
+- New regression test at `modules/contact/test/tests/rigid_body_contact/hertz_sphere_inelastic/`. Same axisymmetric mesh + rigid-indenter approximation + mortar contact setup as Commit 2; the deformable body's material is swapped for `ComputeMultipleInelasticStress` + `IsotropicPlasticityStressUpdate` (J2 radial return, yield 2e5, hardening 1e6), wrapped by `ComputeLagrangianWrappedStress` so it plugs into the new-Lagrangian pipeline.
+- Aux + PP for `effective_plastic_strain` (via `MaterialRealAux`) so the test can assert on plastic-zone size.
+- `NumNonlinearIterations` + `CumulativeValuePostprocessor` gate the semismooth-Newton convergence quality: 10 load steps, 12 cumulative Newton iters (avg 1.2/step). Gold pins current values.
+
+Physical outcome: max contact pressure ~5.6e5 (elastic Hertz predicts 4.8e5; plasticity + rigid-indenter approximation lifts it), max effective plastic strain ~7.6% at final indentation δ = 0.01. No convergence hiccups anywhere in the load ramp.
+
+No new C++ classes introduced — pure input-side extension of the Commit 2 template.
+
+Deviations: none from the (already-mortar-pivoted) plan.

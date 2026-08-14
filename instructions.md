@@ -348,4 +348,74 @@ Three regression tests pass on `contact-opt`, all under `modules/contact/test/te
 
 All three use the existing MOOSE mortar-mechanical-contact stack with `SNESVINEWTONSSLS` + `ConstantBounds` on the LM variable. No new C++ classes were introduced by Commits 2-4 (all are input-only extensions).
 
-**Waiting for user input before moving to Phase 2.**
+---
+
+# Phase 2 plan — Retrofit tests to true rigid body kinematics
+
+## Context
+
+Phase 1 approximated the rigid contactor as a solid mesh with Young's modulus 1000× the deformable body. That is the "very stiff elastic" fudge, not rigid contact — the indenter still deforms slightly, has independent displacement DoFs, and biases every test result (~30% overshoot on max Hertz pressure). Phase 2's job is to make the indenter genuinely rigid in each of the three existing tests. No new deformable-contact machinery is introduced.
+
+## Approach
+
+For each of the three Phase 1 tests (`hertz_sphere_elastic`, `hertz_sphere_inelastic`, `hertz_sphere_inelastic_finite`):
+
+1. **Add a nodeset covering every node of the rigid subdomain (block 1000)** via `ParsedGenerateNodeset` with `included_subdomains = '1000'` and `expression = '1'`. Call it `rigid_all_nodes`.
+2. **Prescribe `disp_x = 0` and `disp_y = <ramp function>` on that nodeset** with `preset = true` DirichletBCs. Every rigid disp DoF becomes a specified value → the rigid body translates uniformly and cannot deform.
+3. **Drop the existing `boundary = 1000` DBCs** (they only covered sideset 1000 = top face; the new nodeset supersedes them).
+4. **Move the load ramp**: previously the deformable body's top surface (`boundary = 2`) was driven by `top_disp_y`. Move that ramp function onto the rigid nodeset's `disp_y` DBC instead, and fix `boundary = 2` (top of deformable) to `disp_y = 0`. This flips from "push deformable down onto stationary rigid" to "push rigid up into stationary deformable", which is physically equivalent for Hertz but keeps the rigid body as the driven element (natural interpretation).
+5. **Remove elasticity/stress/strain materials on block 1000**. `material_coverage_check = false` is already set. The rigid body has no nonlinear residual contribution — it's a purely kinematic mesh.
+6. **Remove the solid_mechanics kernel instances on block 1000**. `kernel_coverage_check = false` is already set.
+7. **Keep the mortar contact wiring exactly as-is**. The primary sideset `1000` still exists; `LMWeightedGapUserObject` + `ComputeWeightedGapLMMechanicalContact` + `NormalMortarMechanicalContact` still evaluate against the primary side. The contact traction on the primary side gets absorbed by the preset DBCs (a reaction load — the rigid body's motion is externally prescribed).
+8. **Regenerate the gold CSVs** for each test. Numerical values will change (max pressure will move closer to analytical Hertz p₀ = 4.775e5; Newton iteration counts may drop since there are fewer DoFs and no rigid-elastic coupling to solve).
+
+## Expected results
+
+- Elastic Hertz: max_lm should move from ~6.4e5 (Phase 1) toward ~4.8e5 (analytical). Any residual gap comes from mesh discretization / mortar-segment resolution, not from finite indenter stiffness.
+- Inelastic tests: max_lm and plastic-strain values will shift analogously. Physics (plastic zone shape) unchanged.
+- Newton iteration counts should be at worst the same, likely better — fewer DoFs, better-conditioned system.
+
+## Risks / open items
+
+- The `preset = true` DBC on a nodeset of interior + surface nodes: verified by MOOSE convention that DirichletBC accepts a nodeset boundary (a nodeset is a valid `BoundaryName`). If the mesh treats interior-node nodeset entries differently, may need to fall back to a nodeset generated via `SideSetsAroundSubdomainGenerator` + a separate mechanism for interior nodes; unlikely.
+- If the mortar constraint on the primary side needs primary-side displacements to be actual FE DoFs (not just Dirichlet-preset values), that's fine — the DoFs still exist in the system, they just have their values preset. `NormalMortarMechanicalContact`'s primary-side residual writes are simply zeroed out by the DBC.
+
+## Commit sequence (each commit ships a retrofitted test + regenerated gold)
+
+- **Commit 5**: Retrofit `hertz_sphere_elastic`. Confirm max_lm moves toward analytical p₀ and that Newton convergence is at least as good.
+- **Commit 6**: Retrofit `hertz_sphere_inelastic`. Confirm plastic zone reproducible + iteration count reasonable.
+- **Commit 7**: Retrofit `hertz_sphere_inelastic_finite`. Confirm large-def convergence still holds.
+- **Optional Commit 8** (cleanup): if the tests share a boilerplate pattern that's now identical across the three, factor out a common `Mesh` block or add a MOOSE include-file. Only if useful.
+
+## Verification
+
+Same as Phase 1 (`conda activate moose`, `contact-opt`, `./run_tests --re rigid_body_contact`). All three tests must pass their regenerated golds and their Newton iteration counts (via the existing `cumulative_nl` PP) must satisfy: ≤ 20 for the elastic test, ≤ 20 for the inelastic small-strain test, ≤ 80 for the inelastic large-def test (Phase 1 had 12 and 66 respectively; true rigid should not make these worse by more than a small margin).
+
+## /goal — Phase 2 non-interactive entry point
+
+    /goal Implement Phase 2 of the rigid-body contact plan documented in
+    instructions.md (see the "Phase 2 plan - Retrofit tests to true rigid
+    body kinematics" section). Ground rules:
+
+    - Build environment is conda env `moose` (activate before any build or
+      test invocation).
+    - Work on branch `rigid_body_contact`. Retrofit the three existing tests
+      (hertz_sphere_elastic, hertz_sphere_inelastic,
+      hertz_sphere_inelastic_finite) so the indenter is a true rigid body
+      rather than a "very stiff elastic" approximation. Follow the "Approach"
+      steps in the Phase 2 plan exactly.
+    - No new C++ classes; the retrofit is input-only using MOOSE mesh
+      generators (ParsedGenerateNodeset with `included_subdomains = '1000'`)
+      plus DirichletBCs with `preset = true`. Remove the kernels and
+      materials attached to the rigid block.
+    - One commit per retrofitted test (Commits 5, 6, 7). Each commit must
+      regenerate that test's gold CSVs and pass the CSVDiff. Do not squash.
+    - Follow AGENTS.md (Simplicity First, Surgical Changes, Goal-Driven
+      Execution). Update the "Log" section of instructions.md after each
+      commit with what shipped and any deviations.
+    - Stop and wait for user input when: all three retrofitted tests pass
+      and the elastic test's max contact pressure has moved measurably
+      closer to the analytical Hertz value (p0 = 4.775e5) than the Phase 1
+      version (~6.4e5); or any step unexpectedly fails after best-effort
+      debugging; or a design ambiguity arises that instructions.md does not
+      cover.

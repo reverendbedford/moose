@@ -299,7 +299,7 @@ Physical check: at final indentation δ = 0.01, analytical sphere-on-sphere Hert
 
 Newton convergence quality: each ramp step converges in 1-2 nonlinear iterations, which is the mortar-contact quality we were hoping for.
 
-Analytic geometry classes (`LevelSetContactor` + `SphereContactor` + `LevelSetContactorAux`) are retained as a "signed-distance primitive" library and are still exercised by the Commit 1 regression test. They are not used to drive the contact in Commit 2; if we ever want an analytic-to-mesh path (for user convenience), a `SphereContactorMeshGenerator` would be the natural bridge and can live in its own commit.
+Analytic geometry classes (`LevelSetContactor`, `SphereContactor`, `LevelSetContactorAux`) and Commit 1's `level_set_contactor.sphere` regression test are removed in the follow-on cleanup commit — they no longer drive contact and are dead weight. If we later want an analytic-to-mesh path (e.g. auto-generating the rigid indenter mesh from a sphere description), a `SphereContactorMeshGenerator` can be reintroduced in its own commit.
 
 Deviations from plan documented here:
 - Dropped the `LowerDIntegratedBC` / `use_dual` lower-d-block LM path. It is not viable for this problem shape; the mortar path is a strictly better fit.

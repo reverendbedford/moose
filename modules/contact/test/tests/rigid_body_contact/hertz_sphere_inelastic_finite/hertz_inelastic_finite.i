@@ -46,6 +46,13 @@
     block = '1 1000 secondary_lower primary_lower'
     refinement = '1 3 1 3'
   []
+  [rigid_all_nodes]
+    type = ParsedGenerateNodeset
+    input = refine
+    expression = '1'
+    included_subdomains = '1000'
+    new_nodeset_name = rigid_all_nodes
+  []
   coord_type = RZ
   allow_renumbering = false
 []
@@ -116,18 +123,6 @@
     component = 1
     block = 1
   []
-  [sdx_rigid]
-    type = TotalLagrangianStressDivergenceAxisymmetricCylindrical
-    variable = disp_x
-    component = 0
-    block = 1000
-  []
-  [sdy_rigid]
-    type = TotalLagrangianStressDivergenceAxisymmetricCylindrical
-    variable = disp_y
-    component = 1
-    block = 1000
-  []
 []
 
 [Materials]
@@ -157,20 +152,6 @@
   [strain_deform]
     type = ComputeLagrangianStrainAxisymmetricCylindrical
     block = 1
-  []
-  [elastic_rigid]
-    type = ComputeIsotropicElasticityTensor
-    youngs_modulus = 1.40625e10
-    poissons_ratio = 0.25
-    block = 1000
-  []
-  [stress_rigid]
-    type = ComputeLagrangianLinearElasticStress
-    block = 1000
-  []
-  [strain_rigid]
-    type = ComputeLagrangianStrainAxisymmetricCylindrical
-    block = 1000
   []
 []
 
@@ -250,17 +231,19 @@
     boundary = 2
     function = top_disp_y
   []
-  [rigid_fix_x]
+  [rigid_x]
     type = DirichletBC
     variable = disp_x
-    boundary = 1000
+    boundary = rigid_all_nodes
     value = 0.0
+    preset = true
   []
-  [rigid_fix_y]
+  [rigid_y]
     type = DirichletBC
     variable = disp_y
-    boundary = 1000
+    boundary = rigid_all_nodes
     value = 0.0
+    preset = true
   []
 []
 

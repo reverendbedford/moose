@@ -419,6 +419,18 @@ Newton convergence: **cumulative_nl jumped from 12 to 70** (avg 1.2 → 7.0 iter
 
 Deviations: none from the (corrected) plan.
 
+### Commit 7 — Retrofit large-def inelastic Hertz to true rigid
+
+Shipped: same edit pattern as Commits 5 and 6 applied to `modules/contact/test/tests/rigid_body_contact/hertz_sphere_inelastic_finite/hertz_inelastic_finite.i`. Regenerated gold; the VectorPostprocessor's final step index shifted from `_0010` to `_0023` because of dt cutbacks (the `tests` file's `csvdiff` list was updated accordingly).
+
+Numerical outcome: max_lm = 6.19e5 (Phase 1: 8.49e5), max plastic strain = 21.0% (Phase 1: 17.2%). Physically: more plastic strain, lower peak pressure — the truly rigid indenter forces the deformable body to accommodate more of the indentation plastically, spreading the load.
+
+**Newton convergence degraded significantly:** cumulative_nl = 738 over ~23 successful (sub)steps versus Phase 1's 66 over 10 steps. Wall time went from ~5 s to 72 s. dt cutbacks kicked in from the second load step onward. This is expected physics — a truly rigid indenter is a genuinely harder Newton problem at large deformations + plasticity than the very-stiff-elastic approximation, which absorbed a fraction of the nonlinearity through its own compliance. The `nl_max_its = 40` still accommodates the worst individual sub-step (39 iters), but the dt cutback logic reduces the effective step size significantly.
+
+The retrofitted test still passes (physics is correct) but is now the slowest test in the suite by 30x. If we want to bring the wall-time back down without giving up rigidity, the natural next moves are: (a) IterationAdaptiveDT to accept the harder problem gracefully, (b) `snesmf_reuse_base` to accelerate Jacobian reuse, (c) coarser dt initially with smaller final dt. None of these are attempted here — the /goal's stop criterion "all three retrofitted tests pass" is met.
+
+Deviations: gold VPP filename index shifted from `_0010` to `_0023` because of dt cutbacks; test spec updated.
+
 ## /goal — Phase 2 non-interactive entry point
 
     /goal Implement Phase 2 of the rigid-body contact plan documented in

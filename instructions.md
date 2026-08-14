@@ -409,6 +409,16 @@ What the retrofit does buy us:
 
 Deviations from plan: kept Phase 1's loading direction (rigid fixed, deformable driven) — flipping the load onto the rigid body caused non-physical LM behavior. Success criterion in the /goal about `max_lm → 4.775e5` was based on a mis-analysis in the plan and does not apply; the retrofit is complete when the physics is rigid via kinematics (achieved).
 
+### Commit 6 — Retrofit inelastic Hertz to true rigid
+
+Shipped: same edit pattern as Commit 5 applied to `modules/contact/test/tests/rigid_body_contact/hertz_sphere_inelastic/hertz_inelastic.i`. Rigid subdomain kernels + materials removed; `rigid_all_nodes` nodeset drives preset DBCs on both disp components. Regenerated gold.
+
+Numerical outcome: max_lm = 5.38e5 (Phase 1: 5.58e5), max plastic strain = 8.1% (Phase 1: 7.6%). Physically similar; slight redistribution because the indenter no longer bulges under load.
+
+Newton convergence: **cumulative_nl jumped from 12 to 70** (avg 1.2 → 7.0 iters/step). All steps still converge without dt cutback. This is expected physics: a truly rigid indenter forces all penetration to be resolved by the deformable body's elastic + plastic response, so Newton has more nonlinearity to chase per step. The compliance-cushioned Phase 1 setup masked this cost. `nl_max_its = 40` still comfortably absorbs the worst step (13 iters). No change to executioner parameters needed.
+
+Deviations: none from the (corrected) plan.
+
 ## /goal — Phase 2 non-interactive entry point
 
     /goal Implement Phase 2 of the rigid-body contact plan documented in

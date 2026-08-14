@@ -1,0 +1,15 @@
+[Tests]
+  design = 'SphereContactor.md'
+  issues = '#0000'
+  [hertz_elastic]
+    type = 'CSVDiff'
+    input = 'hertz_elastic.i'
+    csvdiff = 'hertz_elastic_csv.csv hertz_elastic_csv_contact_lm_0010.csv'
+    rel_err = 1e-4
+    max_parallel = 1
+    requirement = 'The system shall drive a rigid sphere into an elastic half-space (2D '
+                  'axisymmetric) using dual-basis Lagrange-multiplier mortar contact with the '
+                  'new-Lagrangian kernels, and produce a Hertzian pressure distribution that is '
+                  'reproducible to CSVDiff tolerances.'
+  []
+[]

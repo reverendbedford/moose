@@ -216,3 +216,91 @@ Shipped:
 Deviations from plan: none.
 
 Newly-discovered risks: none.
+
+### Commit 2 attempt — LM constraint + traction — **stuck on convergence**
+
+**Code shipped (uncommitted, in working tree):**
+- `RigidBodyNormalLMContact` (`modules/contact/{include,src}/bcs/`) — LM row on lower-d block via `LowerDIntegratedBC`. R_λ_i = ∫ φ_λ_i · g_LS(x + u). Jacobian: `LowerPrimary` = `_test_lambda * n_component * _phi` for `_var`; off-diag handles other disp components.
+- `RigidBodyNormalMechanicalContact` (`modules/contact/{include,src}/bcs/`) — one instance per disp component; traction R_uk_i = ∫ λ · n_k · φ_i. Jacobian: `PrimaryLower` = `n_k * _test * _phi_lambda`. `finite_strain` flag adds the `λ H φ φ` UL term (off by default).
+- `SphereContactor` extended with optional `center_{x,y,z}_function` params for time-ramped sphere motion.
+- New `PlaneContactor` (analytic half-space) — added to allow debugging with a constant normal.
+
+**Hertz test written but does not converge** (`modules/contact/test/tests/rigid_body_contact/hertz_sphere_elastic/hertz_elastic.i`). 2D axisym, TL + linear elastic, sphere ramped from just-touching to δ = 0.02 over 20 pseudo-time steps, `-snes_type vinewtonssls` (also tried `vinewtonrsls`) with `ConstantBounds` `lower=0, upper=1e10` on `normal_lm`, dual basis on the LM variable, both `kernel_coverage_check` and `material_coverage_check` disabled for the lower-d block.
+
+**Symptoms during debugging (SphereContactor):**
+- `snes_test_jacobian` reports `||J - Jfd||_F / ||J||_F ≈ 6e-6` (Frobenius ratio); no entry-wise mismatch above 1e-3, so the Jacobian appears correct within finite-difference noise.
+- Both `vinewtonssls` and `vinewtonrsls` stall very early: initial nonlinear residual ≈ 6e-6 (auto-scaled) / ≈ 0.3 (unscaled `normal_lm` outlier), then residual decreases by < 1% per iter and line search rejects the step.
+- Line-search monitor shows Newton direction `ynorm ≈ 3.6e8` for `fnorm ≈ 6e-4`, i.e. the direction is ~12 orders larger than the residual, suggesting a near-singular (or catastrophically ill-conditioned) saddle-point system. Cubic backtracking shrinks the step by 12 orders of magnitude before giving up.
+- Removing `use_dual` (standard Lagrange LM) does not change the picture.
+- `automatic_scaling` on vs off does not change the qualitative behavior.
+- Increasing `pc_factor_shift_amount` to 1e-6 with `pc_type svd` still shows a broken active-set / step-direction result.
+- At the trivial state (sphere just touching, no penetration) the residual is at noise level (~2e-9) but Newton still makes zero progress — consistent with "the Newton direction goes to a strange place whenever the active set has to transition."
+- Initial `SNES VI Function norm Active lower constraints 16/21 upper constraints 0/0` — VI *does* see the bounds, and roughly the right set of nodes gets picked as active vs. inactive; nevertheless the Newton step is unusable.
+
+**Hypotheses I could not conclusively rule out:**
+1. Dual-basis Lagrange on a stand-alone `LowerDBlockFromSidesetGenerator` block (without `AutomaticMortarGeneration`) may not actually be plumbed through the FE assembly the way I expect — even though `use_dual` sets the variable's flag, libMesh's biorthogonal shape functions may only take effect on mortar-segment elements. If so, the LM mass block is genuinely rank-deficient or nearly so.
+2. The saddle-point system on a lower-d block with a 0 (2,2) block may need explicit stabilization (Barbosa-Hughes / bubble / diagonal penalty) that mortar tests get "for free" via the mortar-segment integration structure.
+3. The `LowerDIntegratedBC` assembly path may be silently producing per-node LM residuals that don't lump the way a dual basis would, so the row-wise NCP interpretation SSLS needs is broken.
+
+**Things worth trying next (from safest to most invasive):**
+- Verify dual basis is active by inspecting `MooseVariableData::_use_dual` at runtime and checking the actual assembled LM mass block.
+- Try P0 LM (`family = MONOMIAL, order = CONSTANT`) as the plan's documented fallback. P0 is trivially inf-sup stable; if it also fails, the problem is not the LM discretization.
+- Switch from the `LowerDBlockFromSidesetGenerator` path to a full mortar setup (with a discretized sphere as the "primary" mesh) and reuse `ComputeWeightedGapLMMechanicalContact`. Much more code to write for Phase 1 but relies on well-tested mortar contact plumbing.
+- Reformulate: hand-code FB semismooth Newton in the LM residual (bypass SNESVI) — the plan's Option B — so the (2,2) block gets a nonzero FB-derivative diagonal that regularizes the saddle-point system.
+
+### Commit 2 attempt #2 — after fixing a traction sign bug
+
+**Traction sign bug found and fixed.** MOOSE's Neumann convention is `residual += -value * test` (see `NeumannBC.h`), so my traction residual should be `-λ n_k φ`, not `+λ n_k φ`. The unfixed version tried to APPLY the contact traction as a "load," which had the opposite sign of what equilibrium needs. After the fix the traction reads
+
+    R_{u_k} += -\lambda \, n_k(x+u) \, \phi_i,
+
+and PrimaryLower Jacobian is `-n_k * _test * _phi_lambda`. `RigidBodyNormalMechanicalContact.C` updated.
+
+**Additional experiments (documented so the next attempt does not repeat them):**
+
+1. **P0 LM + SSLS** (plan's documented fallback): identical stall pattern — Newton makes no progress, DIVERGED_LINE_SEARCH at initial iter, active set correctly identified but step direction unusable.
+2. **Hand-coded FB + plain Newton** (plan's Option B): the reformulation moves from "zero progress" to "some progress" — residual halved for a few iters, then stalls, only LM only reaches ~1% of analytical Hertz pressure. LM values were spatially oscillating (sign-flipping node to node), which is the classic P1-P1 inf-sup instability signature.
+3. **Plane contactor + FB**: even the simplest possible geometry (2D block on a rigid floor with a top pressure) caused Newton to fly the mesh to y ≈ -4e10 in one iter. Jacobian consistency test still says the hand-coded J matches FD within noise (Frobenius ratio 2.6e-5), so Newton direction magnitude comes from the near-singular saddle-point structure, not a sign or index bug in the assembly.
+4. **After the traction-sign fix on SSLS + dual P1 LM + Hertz**: the sphere Hertz test converges for small time steps and DOES activate a nonzero LM at one node (0.63 at r=0.021 for δ = 8e-4, where analytical Hertz predicts p₀ = 19 at r=0). Time-stepper then cuts dt to 1e-12 and stalls. The single-node LM activation is another inf-sup / saddle-point-conditioning symptom, not a physical solution.
+
+**Summary of what I've now ruled out:**
+- Wrong Jacobian (Frobenius ratio to FD is at O(1e-5) noise floor, no entry above 1e-3).
+- Choice of LM discretization: P1, P1+dual, and P0 all show the same fundamental issue.
+- Choice of complementarity driver: SNESVINEWTONSSLS, SNESVINEWTONRSLS, and hand-coded FB with plain Newton all stall on the same saddle-point.
+- MOOSE sign convention on Neumann contributions (now correctly `-value * test`).
+
+**Consistent symptom across every variant:** the Newton direction magnitude is 10-12 orders larger than the residual it is trying to reduce, despite the linear solver reporting convergence. This is the fingerprint of a near-singular (2,2) block in the KKT saddle-point system — i.e., the LM constraint's degrees of freedom don't have a well-defined "self-response" in the assembled matrix.
+
+**My leading hypothesis (updated):** `use_dual = true` is not actually producing biorthogonal shape functions on our stand-alone `LowerDBlockFromSidesetGenerator` block. Without dual basis, `_test_lambda` is a plain Lagrange shape whose integral against a coarse-mesh `g_LS` field produces a genuinely rank-deficient constraint pairing (multiple λ DoFs "see" the same gap contributions, so the effective B matrix has null modes). Then the LU factorization pivots through near-zero rows and generates the huge Newton direction we observe. This would also explain why P0 LM behaves the same way — the fundamental issue isn't the LM's polynomial order, it's the pairing between LM shape functions and the way `LowerDIntegratedBC` assembles.
+
+At this point I don't want to burn more compute iterating on flavors of the same setup. The remaining paths I see:
+
+- (a) **Full mortar route** — bite the bullet, generate a mesh-based rigid sphere surface, run it through `AutomaticMortarGeneration`, and drive it with the *existing* `ComputeWeightedGapLMMechanicalContact` (which is known to work). This deviates from the Phase 1 plan but reuses the entire tested mortar-contact stack. Estimated cost: ~1-2 more Commit 2 iterations, mostly on the sphere-mesh generator.
+- (b) **Deeper `use_dual` audit** — read `MooseVariableData::_use_dual` plumbing carefully, verify with a targeted test whether dual shape functions actually change with the flag on a non-mortar lower-d block. If they don't, that itself is a MOOSE gap to file. If they do, we're back to hunting for another cause.
+- (c) **Give up on `LowerDIntegratedBC` and write a purpose-built `MortarConstraintBase`-derived class** that ignores the primary side but reuses everything MortarConstraintBase does (dual basis, weighted gap, etc.). Riskier but might be more Wohlmuth-consistent than the current path.
+
+Stopping here per the /goal's "stop and wait for user input when a test unexpectedly fails after best-effort debugging" rule.
+
+### Commit 2 — Mortar-based Hertz test (pivoted from the plan)
+
+After confirming that the LowerDIntegratedBC + analytic-contactor path was unworkable (see attempts above), we pivoted to option (a): drive the contact through the existing MOOSE mortar-mechanical-contact stack with a discretized rigid indenter as the primary side. This deviates from the "level-set contactor" spirit of the original plan but reuses the entire tested mortar path and immediately produced a converging Hertz result.
+
+Shipped:
+- Deleted the abandoned classes: `RigidBodyNormalLMContact.{h,C}`, `RigidBodyNormalMechanicalContact.{h,C}`, and `PlaneContactor.{h,C}` (the last was only used for debugging).
+- Reverted `SphereContactor` to its Commit-1 form (dropped the `center_{x,y,z}_function` time-varying-center overrides that were added while attempting to ramp the analytic contactor).
+- New regression test at `modules/contact/test/tests/rigid_body_contact/hertz_sphere_elastic/`:
+  - Reuses the two-body mesh from `modules/contact/test/tests/hertz_spherical/hertz_contact_rz.e` (subdomain 1 = deformable body, subdomain 1000 = rigid indenter). Rigid indenter is refined 3x via `RefineBlockGenerator` to give the mortar-segment mesh more resolution.
+  - Rigid indenter's Young's modulus set to 1e10 (1000x the deformable body) to approximate a rigid body while keeping the mortar-mechanical-contact assumption of a solid mesh with displacement DoFs on both sides.
+  - Uses the new-Lagrangian kernel `TotalLagrangianStressDivergenceAxisymmetricCylindrical` on both blocks with the linear-elastic stress + Lagrangian strain materials, matching the plan.
+  - Contact enforced by the existing `LMWeightedGapUserObject` + `ComputeWeightedGapLMMechanicalContact` + `NormalMortarMechanicalContact`, driven by PETSc `SNESVINEWTONSSLS` with `ConstantBounds` (`lower=0`, `upper=1e12`) on the LM variable.
+  - CSVDiff test on the PP summary (`max_lm` over time) and the final LM profile.
+
+Physical check: at final indentation δ = 0.01, analytical sphere-on-sphere Hertz predicts p₀ = 4.775e5. Numerical max_lm = 6.4e5 (~34% overshoot). Sources of the gap: (a) the "rigid" body has finite stiffness (1000x deformable, not infinite), (b) coarse primary discretization inherited from the pre-existing mesh, (c) sphere-on-sphere vs. rigid-sphere geometric asymmetry. The gold CSV pins the current numerical answer for regression.
+
+Newton convergence quality: each ramp step converges in 1-2 nonlinear iterations, which is the mortar-contact quality we were hoping for.
+
+Analytic geometry classes (`LevelSetContactor` + `SphereContactor` + `LevelSetContactorAux`) are retained as a "signed-distance primitive" library and are still exercised by the Commit 1 regression test. They are not used to drive the contact in Commit 2; if we ever want an analytic-to-mesh path (for user convenience), a `SphereContactorMeshGenerator` would be the natural bridge and can live in its own commit.
+
+Deviations from plan documented here:
+- Dropped the `LowerDIntegratedBC` / `use_dual` lower-d-block LM path. It is not viable for this problem shape; the mortar path is a strictly better fit.
+- Dropped the `LevelSetContactor`-drives-contact-BC part of the plan. The class hierarchy is now purely a geometry-primitive library.

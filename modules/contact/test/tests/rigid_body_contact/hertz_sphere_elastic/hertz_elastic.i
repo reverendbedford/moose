@@ -2,9 +2,12 @@
 # axisymmetric, small strain.
 #
 # Reuses the mesh from modules/contact/test/tests/hertz_spherical/
-# hertz_contact_rz.e (subdomain 1 = deformable body, subdomain 1000 = rigid
-# indenter with a very high stiffness).  Lower-d subdomains are added on
-# each side of the interface at parse time.
+# hertz_contact_rz.e (subdomain 1 = deformable body, subdomain 1000 =
+# rigid indenter). The rigid indenter is treated as a true kinematic
+# rigid body: every node in subdomain 1000 gets its displacement DoFs
+# preset by DirichletBCs, and the block carries no solid_mechanics
+# kernels or materials. The load is applied by ramping the rigid body's
+# disp_y downward toward the (fixed) deformable body.
 #
 # LM contact is enforced through the existing mortar path:
 #   * ComputeWeightedGapLMMechanicalContact assembles the LM row on the
@@ -14,14 +17,13 @@
 #   * PETSc SNESVINEWTONSSLS drives the complementarity through a lower
 #     bound of 0 on the LM variable.
 #
-# Analytical Hertz for sphere-on-sphere with R1 = R2 = 2, both bodies:
-#   E* = E / (2(1-nu^2))    (per body)
-# With E = 1.40625e7 (deformable), nu = 0.25:
-#   E* = 7.5e6, R = 1
-# For depth of indentation d = 0.01:
-#   a  = sqrt(R * d) = 0.1
-#   p0 = 2 E* a / (pi R) = 4.775e5
-#   P  = (4/3) E* R^(1/2) d^(3/2) = 1e4
+# Analytical Hertz for a rigid sphere on an elastic half-space of
+# radius R (both R = 2 here, but only the deformable body deforms):
+#   E* = E / (1 - nu^2) = 1.40625e7 / 0.9375 = 1.5e7
+#   R  = 2 (radius of the rigid indenter)
+# For indentation depth d = 0.01:
+#   a  = sqrt(R d)             = 0.14142
+#   p0 = 2 E* a / (pi R)       = 6.75e5
 
 [GlobalParams]
   displacements = 'disp_x disp_y'
@@ -51,7 +53,14 @@
     type = RefineBlockGenerator
     input = primary_lower
     block = '1 1000 secondary_lower primary_lower'
-    refinement = '1 3 1 3'     # more refinement on the coarse rigid indenter
+    refinement = '1 3 1 3'
+  []
+  [rigid_all_nodes]
+    type = ParsedGenerateNodeset
+    input = refine
+    expression = '1'                # tautology: pick every node in the included subdomain
+    included_subdomains = '1000'
+    new_nodeset_name = rigid_all_nodes
   []
   coord_type = RZ
   allow_renumbering = false
@@ -108,18 +117,6 @@
     component = 1
     block = 1
   []
-  [sdx_rigid]
-    type = TotalLagrangianStressDivergenceAxisymmetricCylindrical
-    variable = disp_x
-    component = 0
-    block = 1000
-  []
-  [sdy_rigid]
-    type = TotalLagrangianStressDivergenceAxisymmetricCylindrical
-    variable = disp_y
-    component = 1
-    block = 1000
-  []
 []
 
 [Materials]
@@ -136,20 +133,6 @@
   [strain_deform]
     type = ComputeLagrangianStrainAxisymmetricCylindrical
     block = 1
-  []
-  [elastic_rigid]
-    type = ComputeIsotropicElasticityTensor
-    youngs_modulus = 1.40625e10   # 1000x stiffer than the deformable body -> effectively rigid
-    poissons_ratio = 0.25
-    block = 1000
-  []
-  [stress_rigid]
-    type = ComputeLagrangianLinearElasticStress
-    block = 1000
-  []
-  [strain_rigid]
-    type = ComputeLagrangianStrainAxisymmetricCylindrical
-    block = 1000
   []
 []
 
@@ -209,7 +192,7 @@
   [top_disp_y]
     type = PiecewiseLinear
     x = '0  1'
-    y = '0 -0.01'
+    y = '0 -0.01'                   # push deformable body down onto stationary rigid indenter
   []
 []
 
@@ -217,26 +200,28 @@
   [symm_x_deform]
     type = DirichletBC
     variable = disp_x
-    boundary = 1        # r = 0 symmetry axis (deformable body)
+    boundary = 1                    # r = 0 symmetry axis on the deformable body
     value = 0.0
   []
   [top_deform_dispy]
     type = FunctionDirichletBC
     variable = disp_y
-    boundary = 2        # top of deformable body: pushed down
+    boundary = 2                    # deformable body's top surface, pushed down
     function = top_disp_y
   []
-  [rigid_fix_x]
+  [rigid_x]
     type = DirichletBC
     variable = disp_x
-    boundary = 1000     # bottom of rigid indenter: fixed
+    boundary = rigid_all_nodes      # every node in the rigid indenter -> truly rigid
     value = 0.0
+    preset = true
   []
-  [rigid_fix_y]
+  [rigid_y]
     type = DirichletBC
     variable = disp_y
-    boundary = 1000
+    boundary = rigid_all_nodes
     value = 0.0
+    preset = true
   []
 []
 

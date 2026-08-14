@@ -1,0 +1,11 @@
+[Tests]
+  design = 'SphereContactor.md LevelSetContactorAux.md'
+  issues = '#0000'
+  [sphere]
+    type = 'CSVDiff'
+    input = 'sphere_contactor.i'
+    csvdiff = 'sphere_contactor_csv_nodal_0000.csv'
+    requirement = 'The system shall provide a rigid spherical contactor whose analytic signed '
+                  'distance and outward normal match the closed-form values at every mesh node.'
+  []
+[]

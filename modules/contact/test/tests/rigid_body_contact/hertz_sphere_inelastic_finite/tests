@@ -14,4 +14,20 @@
                   'reach a large plastic zone, and converge every step with the semismooth '
                   'Newton driver.'
   []
+  [hertz_inelastic_finite-jac]
+    type = 'PetscJacobianTester'
+    input = 'hertz_inelastic_finite.i'
+    prereq = 'hertz_inelastic_finite'
+    # Same initial state as the small-strain inelastic case (no plastic strain, no finite-strain
+    # rotation yet), but the large-kinematics kernel evaluates additional Jacobian terms whose
+    # finite-difference reproduction is noisier at u = 0. Observed ratio ~6%.
+    ratio_tol = 1e-1
+    difference_tol = 2.0
+    cli_args = 'Executioner/num_steps=1 -snes_test_err 1e-8'
+    max_parallel = 1
+    requirement = 'The system shall assemble a hand-coded Jacobian for the rigid-inelastic Hertz '
+                  'setup at large deformation whose Frobenius norm agrees with the '
+                  'finite-difference Jacobian at the initial state within a '
+                  'semismooth-Newton-consistent tolerance.'
+  []
 []

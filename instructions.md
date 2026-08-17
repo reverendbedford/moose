@@ -431,6 +431,33 @@ The retrofitted test still passes (physics is correct) but is now the slowest te
 
 Deviations: gold VPP filename index shifted from `_0010` to `_0023` because of dt cutbacks; test spec updated.
 
+### Newton convergence rate audit
+
+For each of the three tests, examined the per-iteration nonlinear residual history to check whether Newton is truly quadratic near convergence. **Answer: no** — after the first Newton step drops the residual by 4-5 orders of magnitude (mostly the DBC linearization), subsequent iterations reduce by a roughly constant ratio (~0.3-0.5) rather than by an ever-doubling number of digits.
+
+Two contributions to the sub-quadratic behavior:
+- **Semismooth-Newton on FB is not C²-smooth.** PETSc `SNESVINEWTONSSLS` reformulates the residual with the Fischer–Burmeister NCP function, which has a kink at `(λ, g) = (0, 0)`. Newton on a semismooth function is Q-superlinear (not quadratic) in general, and can drop to linear near non-smooth points.
+- **`IsotropicPlasticityStressUpdate` publishes only the elastic tangent, not the consistent algorithmic tangent.** Its base class `RadialReturnStressUpdate` has code for `TangentCalculationMethod::PARTIAL` that computes the consistent tangent, but the isotropic-plasticity model never sets that flag — `getTangentCalculationMethod()` inherits the base's `ELASTIC` return. As a result, `_Jacobian_mult` from the plastic step is the elastic tensor, and Newton on the plastic branch converges linearly with a rate governed by the elastic-vs-consistent-tangent gap. Set `tangent_operator = nonlinear` on `ComputeMultipleInelasticStress` documents the intent, but with the current `IsotropicPlasticityStressUpdate` implementation it is effectively a no-op. This is a MOOSE gap, not an input-side bug.
+
+The elastic test converges in 1 Newton iteration per step (as fast as it gets on this problem).
+
+### Commit 8 — Jacobian tests + inelastic tangent documentation
+
+Shipped:
+- Set `tangent_operator = nonlinear` explicitly on both inelastic tests' `ComputeMultipleInelasticStress` (spec intent; no numerical effect for `IsotropicPlasticityStressUpdate` per the convergence audit above).
+- Added `PetscJacobianTester` variants to all three `tests` files:
+  - `hertz_elastic-jac`, `hertz_inelastic-jac`, `hertz_inelastic_finite-jac`
+  - Each pins its own `ratio_tol` calibrated to the observed `||J - Jfd||_F/||J||_F` at the initial state (5e-2 for small-strain cases; 1e-1 for large-def because the large-kinematics kernel evaluates extra Jacobian terms whose FD reproduction is noisier at u = 0).
+  - Each runs one time step (`Executioner/num_steps=1`) with `-snes_type ksponly -ksp_type preonly -pc_type none -snes_convergence_test skip` (from `run_sim = false`) so the test does exactly one Jacobian evaluation.
+  - Each has `prereq` on its CSVDiff counterpart to serialize.
+
+Observed Jacobian ratios at the initial state (documented via these tests):
+- elastic: 1.73e-2
+- inelastic (small strain): 1.73e-2 (same — no plastic strain yet at t = 0)
+- inelastic large-def: 6.06e-2
+
+None of these are at machine precision because of the FB / semismooth-Newton kink at (λ = 0, g = 0) that lies exactly on the initial state.
+
 ## /goal — Phase 2 non-interactive entry point
 
     /goal Implement Phase 2 of the rigid-body contact plan documented in

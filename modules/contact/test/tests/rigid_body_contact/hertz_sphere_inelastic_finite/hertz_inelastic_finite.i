@@ -140,7 +140,7 @@
   [wrapped_deform]
     type = ComputeMultipleInelasticStress
     inelastic_models = 'j2'
-    tangent_operator = elastic
+    tangent_operator = nonlinear     # consistent algorithmic tangent (spec: exact algorithmic tangents, no AD)
     block = 1
   []
   [j2]

@@ -458,6 +458,34 @@ Observed Jacobian ratios at the initial state (documented via these tests):
 
 None of these are at machine precision because of the FB / semismooth-Newton kink at (λ = 0, g = 0) that lies exactly on the initial state.
 
+### Commit 9 — Consistent algorithmic tangent for J2 plasticity via ComputeMultiPlasticityStress
+
+The Phase 1/2 plastic setup used `ComputeMultipleInelasticStress` + `IsotropicPlasticityStressUpdate`, but that stress-update model never sets `TangentCalculationMethod::PARTIAL`, so the consistent-tangent branch in `RadialReturnStressUpdate::computeTangentOperator` is never invoked and `_Jacobian_mult` stays elastic — hence sub-quadratic Newton on the plastic branch. The correct pattern for the new-Lagrangian pipeline (per the reference test at `modules/solid_mechanics/test/tests/lagrangian/cartesian/total/cross_material/interoperability/new_system_manual.i`) is:
+
+- `ComputeLagrangianWrappedStress` with `objective_rate = rashid`
+- `ComputeMultiPlasticityStress` with `plastic_models = j2`, `ep_plastic_tolerance = 1e-9` (not `ComputeMultipleInelasticStress`)
+- `SolidMechanicsPlasticJ2` UO for the yield surface + `SolidMechanicsHardeningPowerRule` UO for the hardening law
+- `ComputeLagrangianStrainAxisymmetricCylindrical` with `kinematic_approximation = rashid_eigen`
+- `stabilize_strain = true` in GlobalParams (avoids nearly-incompressible plastic locking on linear quads)
+
+Same material stack works for both small-strain and large-def cases; the `large_kinematics` flag switches the kinematics.
+
+Shipped:
+- Both inelastic tests (`hertz_sphere_inelastic`, `hertz_sphere_inelastic_finite`) updated to the pattern above.
+- Yield surface: initial 2e5, linear hardening slope 1e6 (via `SolidMechanicsHardeningPowerRule` with `value_0 = 2e5, epsilon0 = 0.2, exponent = 1.0`), matching the earlier setup.
+- Effective plastic strain aux switched to `RankTwoInvariant` (material) + `MaterialRealAux` (aux) because `ComputeMultiPlasticityStress` publishes `plastic_strain` (RankTwoTensor) rather than a scalar `effective_plastic_strain`.
+- Golds regenerated. Large-def test's VPP final-step index went from `_0023` back to `_0011` (dt cutbacks now only happen once vs many times).
+
+Newton convergence rates:
+- **hertz_inelastic (small strain):** cumulative_nl 70 → 27 (avg 2.7 iters/step). Tail-of-Newton residual reductions now show quadratic behavior (last iter typically ~1e-3 ratio, then jump to machine precision).
+- **hertz_inelastic_finite (large def):** cumulative_nl 738 → 155 (avg 14 iters/step across 11 successful sub-steps; only one dt cutback). Same story on the tail — last few iterations are quadratic.
+
+The linear-convergence sections between the first Newton drop and the quadratic tail are the semismooth-Newton portion (FB kink + active-set toggles): Newton on a non-smooth NCP function is Q-superlinear (not strictly quadratic) in the semismooth region.
+
+Suite wall time: 230s → 50s (large-def dropped from 72s to 29s).
+
+Deviations: switched J2 plasticity implementation from radial-return-with-elastic-tangent (`ComputeMultipleInelasticStress + IsotropicPlasticityStressUpdate`) to the older multi-plasticity framework (`ComputeMultiPlasticityStress + SolidMechanicsPlasticJ2`) that does provide the consistent tangent through the wrapped-Lagrangian pipeline. This is the pattern documented in the solid_mechanics interoperability reference test.
+
 ## /goal — Phase 2 non-interactive entry point
 
     /goal Implement Phase 2 of the rigid-body contact plan documented in

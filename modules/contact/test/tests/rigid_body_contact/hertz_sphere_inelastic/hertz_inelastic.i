@@ -13,6 +13,7 @@
 [GlobalParams]
   displacements = 'disp_x disp_y'
   large_kinematics = false
+  stabilize_strain = true       # avoid nearly-incompressible plastic locking on linear quads
 []
 
 [Mesh]
@@ -80,7 +81,7 @@
 [AuxKernels]
   [plastic_strain_mag]
     type = MaterialRealAux
-    property = effective_plastic_strain
+    property = eff_plastic_strain
     variable = plastic_strain_mag
     execute_on = 'TIMESTEP_END'
     block = 1
@@ -126,29 +127,47 @@
     poissons_ratio = 0.25
     block = 1
   []
+  # ComputeLagrangianWrappedStress + ComputeMultiPlasticityStress with objective_rate = rashid and
+  # kinematic_approximation = rashid_eigen is the pattern that delivers the consistent algorithmic
+  # tangent for both small and large deformation (small strain is triggered by large_kinematics=false).
   [stress_deform]
     type = ComputeLagrangianWrappedStress
+    objective_rate = rashid
     block = 1
   []
   [wrapped_deform]
-    type = ComputeMultipleInelasticStress
-    inelastic_models = 'j2'
-    tangent_operator = nonlinear     # consistent algorithmic tangent (spec: exact algorithmic tangents, no AD)
-    block = 1
-  []
-  [j2]
-    type = IsotropicPlasticityStressUpdate
-    yield_stress = 2.0e5             # Hertz peak elastic pressure is ~4.8e5 -> guaranteed plastic zone
-    hardening_constant = 1.0e6
+    type = ComputeMultiPlasticityStress
+    plastic_models = j2
+    ep_plastic_tolerance = 1e-9
     block = 1
   []
   [strain_deform]
     type = ComputeLagrangianStrainAxisymmetricCylindrical
+    kinematic_approximation = rashid_eigen
+    block = 1
+  []
+  [eff_plastic_strain]
+    type = RankTwoInvariant
+    rank_two_tensor = plastic_strain
+    property_name = eff_plastic_strain
+    invariant = EffectiveStrain
     block = 1
   []
 []
 
 [UserObjects]
+  [yield_strength]
+    type = SolidMechanicsHardeningPowerRule
+    value_0 = 2.0e5                  # initial yield stress
+    epsilon0 = 0.2                   # value = 2e5 * (1 + p/0.2)^1 -> linear hardening with slope 1e6
+    exponent = 1.0
+  []
+  [j2]
+    type = SolidMechanicsPlasticJ2
+    yield_strength = yield_strength
+    yield_function_tolerance = 1e-3
+    internal_constraint_tolerance = 1e-9
+  []
   [weighted_gap_uo]
     type = LMWeightedGapUserObject
     primary_boundary = 1000

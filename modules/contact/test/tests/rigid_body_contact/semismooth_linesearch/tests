@@ -1,0 +1,26 @@
+[Tests]
+  design = 'SemismoothContactLineSearch.md'
+  issues = '#0000'
+  [semismooth_ls]
+    type = 'CSVDiff'
+    input = 'hertz_inelastic_ls.i'
+    csvdiff = 'hertz_inelastic_ls_csv.csv'
+    rel_err = 1e-4
+    max_parallel = 1
+    requirement = 'The system shall converge a challenging rigid-inelastic mortar contact load '
+                  'step (two-step ramp of the small-strain axisymmetric Hertz test) when the '
+                  'semismooth line search is enabled, exercising active-set churn that stalls '
+                  'a Newton iteration lacking a line search.'
+  []
+  [semismooth_ls_bench_no_ls]
+    type = 'RunException'
+    input = 'hertz_inelastic_ls.i'
+    cli_args = 'Executioner/line_search=none'
+    expect_err = 'Solve failed and timestep already at or below dtmin'
+    max_parallel = 1
+    prereq = 'semismooth_ls'
+    requirement = 'The system shall demonstrate the necessity of the semismooth line search by '
+                  'showing that the same rigid-inelastic mortar contact load step fails to '
+                  'converge with `line_search = none` at the same time-step size.'
+  []
+[]

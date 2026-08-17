@@ -491,14 +491,18 @@
 
   nl_rel_tol = 1e-9
   nl_abs_tol = 1e-8
-  nl_max_its = 10
+  nl_max_its = 40
   l_max_its = 200
+
+  # The semismooth (Fischer-Burmeister) line search absorbs the active-set
+  # churn that stalls a plain Newton solve at this indentation depth, so we
+  # can take much larger time steps than the earlier `line_search = 'none'`
+  # + `dt = 6.25e-3` configuration.
+  line_search = semismooth
 
   start_time = 0.0
   end_time   = 1.0
-  dt         = 0.00625
-
-  line_search = 'none'
+  dt         = 0.025
 []
 
 [Postprocessors]

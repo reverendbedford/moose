@@ -422,7 +422,7 @@
   [top_disp_y]
     type = PiecewiseLinear
     x = '0  1'
-    y = '0 -0.05'                   # 5x deeper indentation than the elastic example -> deep plastic zone
+    y = '0 -0.1'                   # 10x deeper indentation than the elastic example -> deep plastic zone
   []
 []
 
@@ -491,12 +491,14 @@
 
   nl_rel_tol = 1e-9
   nl_abs_tol = 1e-8
-  nl_max_its = 40
+  nl_max_its = 10
   l_max_its = 200
 
   start_time = 0.0
   end_time   = 1.0
-  dt         = 0.1
+  dt         = 0.00625
+
+  line_search = 'none'
 []
 
 [Postprocessors]

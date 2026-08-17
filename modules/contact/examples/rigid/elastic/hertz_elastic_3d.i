@@ -90,6 +90,177 @@
     order = FIRST
     block = secondary_lower
   []
+  [stress_xx]
+    order = CONSTANT
+    family = MONOMIAL
+    block = 1
+  []
+  [stress_yy]
+    order = CONSTANT
+    family = MONOMIAL
+    block = 1
+  []
+  [stress_zz]
+    order = CONSTANT
+    family = MONOMIAL
+    block = 1
+  []
+  [stress_xy]
+    order = CONSTANT
+    family = MONOMIAL
+    block = 1
+  []
+  [stress_xz]
+    order = CONSTANT
+    family = MONOMIAL
+    block = 1
+  []
+  [stress_yz]
+    order = CONSTANT
+    family = MONOMIAL
+    block = 1
+  []
+  [strain_xx]
+    order = CONSTANT
+    family = MONOMIAL
+    block = 1
+  []
+  [strain_yy]
+    order = CONSTANT
+    family = MONOMIAL
+    block = 1
+  []
+  [strain_zz]
+    order = CONSTANT
+    family = MONOMIAL
+    block = 1
+  []
+  [strain_xy]
+    order = CONSTANT
+    family = MONOMIAL
+    block = 1
+  []
+  [strain_xz]
+    order = CONSTANT
+    family = MONOMIAL
+    block = 1
+  []
+  [strain_yz]
+    order = CONSTANT
+    family = MONOMIAL
+    block = 1
+  []
+[]
+
+[AuxKernels]
+  [stress_xx]
+    type = RankTwoAux
+    rank_two_tensor = cauchy_stress
+    variable = stress_xx
+    index_i = 0
+    index_j = 0
+    execute_on = 'TIMESTEP_END'
+    block = 1
+  []
+  [stress_yy]
+    type = RankTwoAux
+    rank_two_tensor = cauchy_stress
+    variable = stress_yy
+    index_i = 1
+    index_j = 1
+    execute_on = 'TIMESTEP_END'
+    block = 1
+  []
+  [stress_zz]
+    type = RankTwoAux
+    rank_two_tensor = cauchy_stress
+    variable = stress_zz
+    index_i = 2
+    index_j = 2
+    execute_on = 'TIMESTEP_END'
+    block = 1
+  []
+  [stress_xy]
+    type = RankTwoAux
+    rank_two_tensor = cauchy_stress
+    variable = stress_xy
+    index_i = 0
+    index_j = 1
+    execute_on = 'TIMESTEP_END'
+    block = 1
+  []
+  [stress_xz]
+    type = RankTwoAux
+    rank_two_tensor = cauchy_stress
+    variable = stress_xz
+    index_i = 0
+    index_j = 2
+    execute_on = 'TIMESTEP_END'
+    block = 1
+  []
+  [stress_yz]
+    type = RankTwoAux
+    rank_two_tensor = cauchy_stress
+    variable = stress_yz
+    index_i = 1
+    index_j = 2
+    execute_on = 'TIMESTEP_END'
+    block = 1
+  []
+  [strain_xx]
+    type = RankTwoAux
+    rank_two_tensor = mechanical_strain
+    variable = strain_xx
+    index_i = 0
+    index_j = 0
+    execute_on = 'TIMESTEP_END'
+    block = 1
+  []
+  [strain_yy]
+    type = RankTwoAux
+    rank_two_tensor = mechanical_strain
+    variable = strain_yy
+    index_i = 1
+    index_j = 1
+    execute_on = 'TIMESTEP_END'
+    block = 1
+  []
+  [strain_zz]
+    type = RankTwoAux
+    rank_two_tensor = mechanical_strain
+    variable = strain_zz
+    index_i = 2
+    index_j = 2
+    execute_on = 'TIMESTEP_END'
+    block = 1
+  []
+  [strain_xy]
+    type = RankTwoAux
+    rank_two_tensor = mechanical_strain
+    variable = strain_xy
+    index_i = 0
+    index_j = 1
+    execute_on = 'TIMESTEP_END'
+    block = 1
+  []
+  [strain_xz]
+    type = RankTwoAux
+    rank_two_tensor = mechanical_strain
+    variable = strain_xz
+    index_i = 0
+    index_j = 2
+    execute_on = 'TIMESTEP_END'
+    block = 1
+  []
+  [strain_yz]
+    type = RankTwoAux
+    rank_two_tensor = mechanical_strain
+    variable = strain_yz
+    index_i = 1
+    index_j = 2
+    execute_on = 'TIMESTEP_END'
+    block = 1
+  []
 []
 
 [Bounds]

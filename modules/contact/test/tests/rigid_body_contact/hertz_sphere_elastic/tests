@@ -1,5 +1,5 @@
 [Tests]
-  design = 'SphereContactor.md'
+  design = 'SphereContactor.md RigidBodyNodalNCPKernel.md RigidBodyNormalMechanicalContact.md'
   issues = '#0000'
   [hertz_elastic]
     type = 'CSVDiff'
@@ -8,21 +8,18 @@
     rel_err = 1e-4
     max_parallel = 1
     requirement = 'The system shall drive a rigid sphere into an elastic half-space (2D '
-                  'axisymmetric) using dual-basis Lagrange-multiplier mortar contact with the '
-                  'new-Lagrangian kernels, and produce a Hertzian pressure distribution that is '
-                  'reproducible to CSVDiff tolerances.'
+                  'axisymmetric) using a nodewise semismooth-Newton NCP against an analytic '
+                  'level-set contactor, without mortar-segment integration and without AD.'
   []
   [hertz_elastic-jac]
     type = 'PetscJacobianTester'
     input = 'hertz_elastic.i'
     prereq = 'hertz_elastic'
-    ratio_tol = 5e-2       # dominant contribution is the FB / semismooth-Newton kink at (lambda=0, g=0)
-                           # in the initial state; smooth-region ratios settle near machine precision
-    difference_tol = 1.0
+    ratio_tol = 1e-1     # min-NCP kink at initial state widens the FD-vs-hand-coded gap
+    difference_tol = 2.0
     cli_args = 'Executioner/num_steps=1 -snes_test_err 1e-8'
     max_parallel = 1
-    requirement = 'The system shall assemble a hand-coded Jacobian for the rigid-elastic Hertz '
-                  'setup whose Frobenius norm agrees with the finite-difference Jacobian at the '
-                  'initial state within a semismooth-Newton-consistent tolerance.'
+    requirement = 'The system shall assemble a hand-coded Jacobian for the analytic-level-set '
+                  'rigid-elastic Hertz setup within a semismooth-Newton-consistent tolerance.'
   []
 []

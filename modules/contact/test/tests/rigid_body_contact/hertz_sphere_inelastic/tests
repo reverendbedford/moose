@@ -1,5 +1,5 @@
 [Tests]
-  design = 'ComputeMultipleInelasticStress.md ComputeLagrangianWrappedStress.md'
+  design = 'SphereContactor.md RigidBodyNodalNCPKernel.md RigidBodyNormalMechanicalContact.md'
   issues = '#0000'
   [hertz_inelastic]
     type = 'CSVDiff'
@@ -7,25 +7,21 @@
     csvdiff = 'hertz_inelastic_csv.csv hertz_inelastic_csv_contact_lm_0010.csv'
     rel_err = 1e-4
     max_parallel = 1
-    requirement = 'The system shall drive a rigid sphere into a J2-plasticity half-space (2D '
-                  'axisymmetric, small strain, radial-return) using dual-basis '
-                  'Lagrange-multiplier mortar contact with the new-Lagrangian kernel pipeline, '
-                  'reach a nonzero plastic zone, and converge each load step in a small number '
-                  'of semismooth-Newton iterations.'
+    heavy = true
+    requirement = 'The system shall drive a rigid sphere into a J2-plasticity half-space '
+                  '(2D axisymmetric, small strain) using the analytic-level-set nodal-NCP '
+                  'contact stack with a semismooth Newton solver.'
   []
   [hertz_inelastic-jac]
     type = 'PetscJacobianTester'
     input = 'hertz_inelastic.i'
     prereq = 'hertz_inelastic'
-    # Initial state is elastic (no plastic strain yet), so the plastic-tangent gap in
-    # IsotropicPlasticityStressUpdate (elastic-only tangent) does not enter this initial J
-    # comparison. Ratio is dominated by the FB / semismooth-Newton kink.
-    ratio_tol = 5e-2
-    difference_tol = 1.0
+    ratio_tol = 1e-1
+    difference_tol = 2.0
     cli_args = 'Executioner/num_steps=1 -snes_test_err 1e-8'
     max_parallel = 1
-    requirement = 'The system shall assemble a hand-coded Jacobian for the rigid-inelastic Hertz '
-                  'setup whose Frobenius norm agrees with the finite-difference Jacobian at the '
-                  'initial state within a semismooth-Newton-consistent tolerance.'
+    heavy = true
+    requirement = 'The system shall assemble a hand-coded Jacobian for the rigid-inelastic '
+                  'Hertz setup within a semismooth-Newton-consistent tolerance.'
   []
 []

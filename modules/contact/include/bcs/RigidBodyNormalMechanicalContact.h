@@ -1,0 +1,52 @@
+//* This file is part of the MOOSE framework
+//* https://mooseframework.inl.gov
+//*
+//* All rights reserved, see COPYRIGHT for full restrictions
+//* https://github.com/idaholab/moose/blob/master/COPYRIGHT
+//*
+//* Licensed under LGPL 2.1, please see LICENSE for details
+//* https://www.gnu.org/licenses/lgpl-2.1.html
+
+#pragma once
+#include "LowerDIntegratedBC.h"
+
+class LevelSetContactor;
+
+/**
+ * Traction on one displacement component from a rigid-body frictionless contact.
+ * Companion to RigidBodyNodalNCPKernel (which handles the LM row).
+ *
+ *   R_{u_k}(i) += -λ · n_k(x + u) · φ_i
+ *
+ * Off-diagonal:  d R_{u_k} / d λ_j = -n_k · φ_i · φ_lambda_j.
+ * With `finite_strain = true`, adds d R_{u_k} / d u_l = -λ · H_kl · φ_l_j · φ_i.
+ */
+class RigidBodyNormalMechanicalContact : public LowerDIntegratedBC
+{
+public:
+  static InputParameters validParams();
+  RigidBodyNormalMechanicalContact(const InputParameters &);
+
+protected:
+  virtual Real computeQpResidual() override;
+  virtual Real computeQpJacobian() override;
+  virtual Real computeQpOffDiagJacobian(unsigned int) override;
+  virtual Real computeLowerDQpResidual() override { return 0; }
+  virtual Real computeLowerDQpJacobian(Moose::ConstraintJacobianType type) override;
+  virtual Real computeLowerDQpOffDiagJacobian(Moose::ConstraintJacobianType,
+                                              const MooseVariableFEBase &) override
+  {
+    return 0;
+  }
+
+private:
+  Point deformedPoint() const;
+  unsigned int dispIndex(unsigned int) const;
+
+  const LevelSetContactor & _contactor;
+  const unsigned int _component;
+  const unsigned int _ndisp;
+  std::vector<const VariableValue *> _disp;
+  std::vector<unsigned int> _disp_num;
+  const bool _finite_strain;
+};

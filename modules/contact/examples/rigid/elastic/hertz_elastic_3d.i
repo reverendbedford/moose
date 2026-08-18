@@ -1,32 +1,26 @@
 # Example: rigid sphere pressed into an elastic body, 3D quarter-symmetry,
-# small strain.  Reuses the sphere-on-sphere mesh at
-#   modules/contact/test/tests/hertz_spherical/hertz_contact.e
-# (subdomain 1 = deformable body, subdomain 1000 = rigid indenter) and turns
-# subdomain 1000 into a truly rigid indenter by preset-DirichletBC'ing every
-# one of its displacement DoFs.  Contact is enforced through MOOSE's mortar
-# mechanical-contact stack driven by PETSc SNESVINEWTONSSLS.
+# small strain.  Analytic level-set contact stack:
+#
+#   * SphereContactor supplies g_LS(x) = |x - c| - R and its normal / hessian.
+#   * RigidBodyNodalNCPKernel writes R_lambda_i = min(lambda_i, c * g_LS(x_i + u_i))
+#     directly at each Lagrange-multiplier DoF on the deformable contact
+#     sideset's lower-d block (no mortar, no AD, no dual basis).
+#   * RigidBodyNormalMechanicalContact applies -lambda * n * phi_test to the
+#     three displacement equations along the same lower-d block.
+#   * PETSc SNESVINEWTONSSLS + ConstantBounds enforces lambda >= 0.
 #
 # Geometry (quarter of a sphere-on-sphere Hertz setup, symmetry planes at
-# x = 0 and z = 0):
-#   deformable body   : quarter sphere, radius 2, bottom curved surface at
-#                       sideset 100
-#   rigid indenter    : single-cube approximation with its top face
-#                       (sideset 1000) at y = -2 = the contact plane
-#   loading           : compress the deformable body downward by 0.01 via a
-#                       function DirichletBC on its top surface (sideset 2)
-#   symmetry          : disp_x = 0 on sideset 1 (x = 0), disp_z = 0 on
-#                       sideset 3 (z = 0)
+# x = 0 and z = 0), reusing modules/contact/test/tests/hertz_spherical/hertz_contact.e:
+#   subdomain 1     = deformable quarter-sphere, radius 2, curved bottom on sideset 100
+#   subdomain 1000  = original mesh's rigid indenter (unused, pinned to zero)
+#   sideset 2       = top surface of deformable body, driven by function DirichletBC
+#   sideset 1       = x = 0 symmetry plane; sideset 3 = z = 0 symmetry plane
 #
-# Constitutive stack (new-Lagrangian pipeline):
-#   ComputeLagrangianStrain + ComputeLagrangianLinearElasticStress
-#   TotalLagrangianStressDivergence with large_kinematics = false
-#
-# Analytical Hertz for a rigid sphere R = 2 on an elastic body of the same
-# geometric radius (effective R = 1 combining both curvatures) with
-# E = 1.40625e7, nu = 0.25 (so E* = E/(1 - nu^2) = 1.5e7):
+# Analytical Hertz (rigid sphere R = 2 on elastic body of same geometric R,
+# E = 1.40625e7, nu = 0.25, so E* = 1.5e7 and R_eff = 1):
 #   depth d  = 0.01
 #   contact radius  a  = sqrt(R d)      = 0.1
-#   peak pressure   p0 = 2 E* a / (pi R) = 9.55e5
+#   peak pressure   p0 = 2 E* a / (pi R) = 9.55e5.
 
 [GlobalParams]
   displacements = 'disp_x disp_y disp_z'
@@ -38,49 +32,36 @@
     type = FileMeshGenerator
     file = ../../../test/tests/hertz_spherical/hertz_contact.e
   []
-  [secondary_lower]
+  [contact_lower]
     type = LowerDBlockFromSidesetGenerator
     input = file
     sidesets = '100'
     new_block_id = 10001
-    new_block_name = secondary_lower
-  []
-  [primary_lower]
-    type = LowerDBlockFromSidesetGenerator
-    input = secondary_lower
-    sidesets = '1000'
-    new_block_id = 10000
-    new_block_name = primary_lower
-  []
-  [refine_primary]
-    type = RefineBlockGenerator
-    input = primary_lower
-    block = '1000 primary_lower'
-    refinement = '2 2'         # refine the rigid indenter for mortar-segment quality
-  []
-  [rigid_all_nodes]
-    type = ParsedGenerateNodeset
-    input = refine_primary
-    expression = '1'
-    included_subdomains = '1000'
-    new_nodeset_name = rigid_all_nodes
+    new_block_name = contact_lower
   []
   allow_renumbering = false
 []
 
+[UserObjects]
+  [sphere]
+    type = SphereContactor
+    center = '0 -4 0'                     # top of rigid sphere at y = -2, tangent to material tip at t = 0
+    radius = 2.0
+  []
+[]
+
 [Variables]
   [disp_x]
-    block = '1 1000'
+    block = '1 1000 contact_lower'        # nodal sharing on the lower-d block gives disp DoFs at those nodes
   []
   [disp_y]
-    block = '1 1000'
+    block = '1 1000 contact_lower'
   []
   [disp_z]
-    block = '1 1000'
+    block = '1 1000 contact_lower'
   []
   [normal_lm]
-    block = secondary_lower
-    use_dual = true
+    block = contact_lower
   []
 []
 
@@ -88,7 +69,7 @@
   [bounds_dummy]
     family = LAGRANGE
     order = FIRST
-    block = secondary_lower
+    block = contact_lower
   []
   [stress_xx]
     order = CONSTANT
@@ -116,36 +97,6 @@
     block = 1
   []
   [stress_yz]
-    order = CONSTANT
-    family = MONOMIAL
-    block = 1
-  []
-  [strain_xx]
-    order = CONSTANT
-    family = MONOMIAL
-    block = 1
-  []
-  [strain_yy]
-    order = CONSTANT
-    family = MONOMIAL
-    block = 1
-  []
-  [strain_zz]
-    order = CONSTANT
-    family = MONOMIAL
-    block = 1
-  []
-  [strain_xy]
-    order = CONSTANT
-    family = MONOMIAL
-    block = 1
-  []
-  [strain_xz]
-    order = CONSTANT
-    family = MONOMIAL
-    block = 1
-  []
-  [strain_yz]
     order = CONSTANT
     family = MONOMIAL
     block = 1
@@ -207,71 +158,17 @@
     execute_on = 'TIMESTEP_END'
     block = 1
   []
-  [strain_xx]
-    type = RankTwoAux
-    rank_two_tensor = mechanical_strain
-    variable = strain_xx
-    index_i = 0
-    index_j = 0
-    execute_on = 'TIMESTEP_END'
-    block = 1
-  []
-  [strain_yy]
-    type = RankTwoAux
-    rank_two_tensor = mechanical_strain
-    variable = strain_yy
-    index_i = 1
-    index_j = 1
-    execute_on = 'TIMESTEP_END'
-    block = 1
-  []
-  [strain_zz]
-    type = RankTwoAux
-    rank_two_tensor = mechanical_strain
-    variable = strain_zz
-    index_i = 2
-    index_j = 2
-    execute_on = 'TIMESTEP_END'
-    block = 1
-  []
-  [strain_xy]
-    type = RankTwoAux
-    rank_two_tensor = mechanical_strain
-    variable = strain_xy
-    index_i = 0
-    index_j = 1
-    execute_on = 'TIMESTEP_END'
-    block = 1
-  []
-  [strain_xz]
-    type = RankTwoAux
-    rank_two_tensor = mechanical_strain
-    variable = strain_xz
-    index_i = 0
-    index_j = 2
-    execute_on = 'TIMESTEP_END'
-    block = 1
-  []
-  [strain_yz]
-    type = RankTwoAux
-    rank_two_tensor = mechanical_strain
-    variable = strain_yz
-    index_i = 1
-    index_j = 2
-    execute_on = 'TIMESTEP_END'
-    block = 1
-  []
 []
 
 [Bounds]
-  [normal_lm_lower]
+  [lm_lo]
     type = ConstantBounds
     variable = bounds_dummy
     bounded_variable = normal_lm
     bound_type = lower
     bound_value = 0.0
   []
-  [normal_lm_upper]
+  [lm_hi]
     type = ConstantBounds
     variable = bounds_dummy
     bounded_variable = normal_lm
@@ -281,19 +178,19 @@
 []
 
 [Kernels]
-  [sdx_deform]
+  [sdx]
     type = TotalLagrangianStressDivergence
     variable = disp_x
     component = 0
     block = 1
   []
-  [sdy_deform]
+  [sdy]
     type = TotalLagrangianStressDivergence
     variable = disp_y
     component = 1
     block = 1
   []
-  [sdz_deform]
+  [sdz]
     type = TotalLagrangianStressDivergence
     variable = disp_z
     component = 2
@@ -301,86 +198,30 @@
   []
 []
 
+[NodalKernels]
+  [ncp]
+    type = RigidBodyNodalNCPKernel
+    variable = normal_lm
+    contactor = sphere
+    displacements = 'disp_x disp_y disp_z'
+    block = contact_lower
+  []
+[]
+
 [Materials]
-  [elastic_deform]
+  [tensor]
     type = ComputeIsotropicElasticityTensor
     youngs_modulus = 1.40625e7
     poissons_ratio = 0.25
     block = 1
   []
-  [stress_deform]
+  [stress]
     type = ComputeLagrangianLinearElasticStress
     block = 1
   []
-  [strain_deform]
+  [strain]
     type = ComputeLagrangianStrain
     block = 1
-  []
-[]
-
-[UserObjects]
-  [weighted_gap_uo]
-    type = LMWeightedGapUserObject
-    primary_boundary = 1000
-    secondary_boundary = 100
-    primary_subdomain = primary_lower
-    secondary_subdomain = secondary_lower
-    lm_variable = normal_lm
-    disp_x = disp_x
-    disp_y = disp_y
-    disp_z = disp_z
-  []
-[]
-
-[Constraints]
-  [weighted_gap_lm]
-    type = ComputeWeightedGapLMMechanicalContact
-    primary_boundary = 1000
-    secondary_boundary = 100
-    primary_subdomain = primary_lower
-    secondary_subdomain = secondary_lower
-    variable = normal_lm
-    disp_x = disp_x
-    disp_y = disp_y
-    disp_z = disp_z
-    c = 1
-    weighted_gap_uo = weighted_gap_uo
-  []
-  [normal_x]
-    type = NormalMortarMechanicalContact
-    primary_boundary = 1000
-    secondary_boundary = 100
-    primary_subdomain = primary_lower
-    secondary_subdomain = secondary_lower
-    variable = normal_lm
-    secondary_variable = disp_x
-    component = x
-    compute_lm_residuals = false
-    weighted_gap_uo = weighted_gap_uo
-  []
-  [normal_y]
-    type = NormalMortarMechanicalContact
-    primary_boundary = 1000
-    secondary_boundary = 100
-    primary_subdomain = primary_lower
-    secondary_subdomain = secondary_lower
-    variable = normal_lm
-    secondary_variable = disp_y
-    component = y
-    compute_lm_residuals = false
-    weighted_gap_uo = weighted_gap_uo
-  []
-  [normal_z]
-    type = NormalMortarMechanicalContact
-    primary_boundary = 1000
-    secondary_boundary = 100
-    primary_subdomain = primary_lower
-    secondary_subdomain = secondary_lower
-    variable = normal_lm
-    secondary_variable = disp_z
-    component = z
-    compute_lm_residuals = false
-    weighted_gap_uo = weighted_gap_uo
   []
 []
 
@@ -388,47 +229,74 @@
   [top_disp_y]
     type = PiecewiseLinear
     x = '0  1'
-    y = '0 -0.01'                   # push deformable body down onto stationary rigid indenter
+    y = '0 -0.01'
   []
 []
 
 [BCs]
-  [symm_x_deform]
+  [rb_tx]
+    type = RigidBodyNormalMechanicalContact
+    variable = disp_x
+    lowerd_variable = normal_lm
+    boundary = 100
+    contactor = sphere
+    component = x
+    displacements = 'disp_x disp_y disp_z'
+  []
+  [rb_ty]
+    type = RigidBodyNormalMechanicalContact
+    variable = disp_y
+    lowerd_variable = normal_lm
+    boundary = 100
+    contactor = sphere
+    component = y
+    displacements = 'disp_x disp_y disp_z'
+  []
+  [rb_tz]
+    type = RigidBodyNormalMechanicalContact
+    variable = disp_z
+    lowerd_variable = normal_lm
+    boundary = 100
+    contactor = sphere
+    component = z
+    displacements = 'disp_x disp_y disp_z'
+  []
+  [symm_x]
     type = DirichletBC
     variable = disp_x
-    boundary = 1                    # x = 0 symmetry plane on the deformable body
+    boundary = 1
     value = 0.0
   []
-  [symm_z_deform]
+  [symm_z]
     type = DirichletBC
     variable = disp_z
-    boundary = 3                    # z = 0 symmetry plane on the deformable body
+    boundary = 3
     value = 0.0
   []
-  [top_deform_dispy]
+  [top_deform]
     type = FunctionDirichletBC
     variable = disp_y
-    boundary = 2                    # deformable body's top surface, pushed down
+    boundary = 2
     function = top_disp_y
   []
-  [rigid_x]
+  [pin_orig_rigid_x]
     type = DirichletBC
     variable = disp_x
-    boundary = rigid_all_nodes
+    boundary = 1000
     value = 0.0
     preset = true
   []
-  [rigid_y]
+  [pin_orig_rigid_y]
     type = DirichletBC
     variable = disp_y
-    boundary = rigid_all_nodes
+    boundary = 1000
     value = 0.0
     preset = true
   []
-  [rigid_z]
+  [pin_orig_rigid_z]
     type = DirichletBC
     variable = disp_z
-    boundary = rigid_all_nodes
+    boundary = 1000
     value = 0.0
     preset = true
   []
@@ -455,6 +323,8 @@
   petsc_options_iname = '-snes_type -pc_type -pc_factor_shift_type -pc_factor_shift_amount'
   petsc_options_value = 'vinewtonssls lu    NONZERO               1e-12'
 
+  line_search = semismooth
+
   nl_rel_tol = 1e-9
   nl_abs_tol = 1e-8
   nl_max_its = 40
@@ -469,7 +339,7 @@
   [max_lm]
     type = NodalExtremeValue
     variable = normal_lm
-    block = secondary_lower
+    block = contact_lower
     value_type = max
   []
   [num_nl]

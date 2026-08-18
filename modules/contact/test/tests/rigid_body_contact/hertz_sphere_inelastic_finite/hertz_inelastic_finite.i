@@ -13,9 +13,14 @@
     type = FileMeshGenerator
     file = ../../hertz_spherical/hertz_contact_rz.e
   []
+  [drop_rigid_indenter]
+    type = BlockDeletionGenerator
+    input = file
+    block = 1000
+  []
   [contact_lower]
     type = LowerDBlockFromSidesetGenerator
-    input = file
+    input = drop_rigid_indenter
     sidesets = '100'
     new_block_id = 10001
     new_block_name = contact_lower
@@ -46,10 +51,10 @@
 
 [Variables]
   [disp_x]
-    block = '1 1000 contact_lower'
+    block = '1 contact_lower'
   []
   [disp_y]
-    block = '1 1000 contact_lower'
+    block = '1 contact_lower'
   []
   [normal_lm]
     block = contact_lower
@@ -193,20 +198,6 @@
     variable = disp_y
     boundary = 2
     function = top_disp_y
-  []
-  [pin_orig_rigid_x]
-    type = DirichletBC
-    variable = disp_x
-    boundary = 1000
-    value = 0.0
-    preset = true
-  []
-  [pin_orig_rigid_y]
-    type = DirichletBC
-    variable = disp_y
-    boundary = 1000
-    value = 0.0
-    preset = true
   []
 []
 

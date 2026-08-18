@@ -12,7 +12,8 @@
 # Geometry (quarter of a sphere-on-sphere Hertz setup, symmetry planes at
 # x = 0 and z = 0), reusing modules/contact/test/tests/hertz_spherical/hertz_contact.e:
 #   subdomain 1     = deformable quarter-sphere, radius 2, curved bottom on sideset 100
-#   subdomain 1000  = original mesh's rigid indenter (unused, pinned to zero)
+#   (mesh's original rigid indenter, subdomain 1000, is stripped by
+#    BlockDeletionGenerator - the analytic sphere replaces it)
 #   sideset 2       = top surface of deformable body, driven by function DirichletBC
 #   sideset 1       = x = 0 symmetry plane; sideset 3 = z = 0 symmetry plane
 #
@@ -32,9 +33,14 @@
     type = FileMeshGenerator
     file = ../../../test/tests/hertz_spherical/hertz_contact.e
   []
+  [drop_rigid_indenter]
+    type = BlockDeletionGenerator
+    input = file
+    block = 1000
+  []
   [contact_lower]
     type = LowerDBlockFromSidesetGenerator
-    input = file
+    input = drop_rigid_indenter
     sidesets = '100'
     new_block_id = 10001
     new_block_name = contact_lower
@@ -52,13 +58,13 @@
 
 [Variables]
   [disp_x]
-    block = '1 1000 contact_lower'        # nodal sharing on the lower-d block gives disp DoFs at those nodes
+    block = '1 contact_lower'             # nodal sharing on the lower-d block gives disp DoFs at those nodes
   []
   [disp_y]
-    block = '1 1000 contact_lower'
+    block = '1 contact_lower'
   []
   [disp_z]
-    block = '1 1000 contact_lower'
+    block = '1 contact_lower'
   []
   [normal_lm]
     block = contact_lower
@@ -278,27 +284,6 @@
     variable = disp_y
     boundary = 2
     function = top_disp_y
-  []
-  [pin_orig_rigid_x]
-    type = DirichletBC
-    variable = disp_x
-    boundary = 1000
-    value = 0.0
-    preset = true
-  []
-  [pin_orig_rigid_y]
-    type = DirichletBC
-    variable = disp_y
-    boundary = 1000
-    value = 0.0
-    preset = true
-  []
-  [pin_orig_rigid_z]
-    type = DirichletBC
-    variable = disp_z
-    boundary = 1000
-    value = 0.0
-    preset = true
   []
 []
 

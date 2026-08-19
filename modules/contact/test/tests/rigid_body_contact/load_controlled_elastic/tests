@@ -1,0 +1,15 @@
+[Tests]
+  design = 'RigidBodyLoadControl.md LevelSetContactor.md'
+  issues = '#0000'
+  [hertz_load]
+    type = 'CSVDiff'
+    input = 'hertz_load.i'
+    csvdiff = 'hertz_load_csv.csv'
+    rel_err = 1e-4
+    max_parallel = 1
+    heavy = true
+    requirement = 'The system shall drive a rigid analytic contactor against an elastic body via '
+                  'a prescribed applied force through a Scalar variable representing the rigid '
+                  'body translation and a companion RigidBodyLoadControl NodalScalarKernel.'
+  []
+[]

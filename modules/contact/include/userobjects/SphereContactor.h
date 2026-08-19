@@ -15,11 +15,11 @@ class SphereContactor : public LevelSetContactor
 public:
   static InputParameters validParams();
   SphereContactor(const InputParameters &);
-  virtual Real signedDistance(const Point &) const override;
-  virtual RealVectorValue normal(const Point &) const override;
-  virtual RealTensorValue hessian(const Point &) const override;
-
 protected:
+  virtual Real signedDistanceRaw(const Point &) const override;
+  virtual RealVectorValue normalRaw(const Point &) const override;
+  virtual RealTensorValue hessianRaw(const Point &) const override;
+
   const Point _center;
   const Real _radius;
 };

@@ -27,13 +27,13 @@ SphereContactor::SphereContactor(const InputParameters & p)
 }
 
 Real
-SphereContactor::signedDistance(const Point & x) const
+SphereContactor::signedDistanceRaw(const Point & x) const
 {
   return (x - _center).norm() - _radius;
 }
 
 RealVectorValue
-SphereContactor::normal(const Point & x) const
+SphereContactor::normalRaw(const Point & x) const
 {
   const RealVectorValue r = x - _center;
   const Real rn = r.norm();
@@ -43,7 +43,7 @@ SphereContactor::normal(const Point & x) const
 }
 
 RealTensorValue
-SphereContactor::hessian(const Point & x) const
+SphereContactor::hessianRaw(const Point & x) const
 {
   const RealVectorValue r = x - _center;
   const Real rn = r.norm();

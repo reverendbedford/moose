@@ -46,9 +46,12 @@ public:
 
   virtual void initialSetup() override;
 
-  virtual Real signedDistance(const Point & x) const override;
-  virtual RealVectorValue normal(const Point & x) const override;
-  virtual Query queryAt(const Point & x) const override;
+protected:
+  virtual Real signedDistanceRaw(const Point & x) const override;
+  virtual RealVectorValue normalRaw(const Point & x) const override;
+  virtual Query queryAtRaw(const Point & x) const override;
+
+public:
 
 private:
   /**

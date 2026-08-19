@@ -197,7 +197,7 @@ SurfaceMeshContactor::closestSurfacePoint(const Point & x, const libMesh::Elem *
 }
 
 LevelSetContactor::Query
-SurfaceMeshContactor::queryAt(const Point & x) const
+SurfaceMeshContactor::queryAtRaw(const Point & x) const
 {
   // One KDTree search + neighbor sweep serves gap, normal, and hessian.  The
   // per-quantity accessors below defer to this method, so there is no slow
@@ -234,13 +234,13 @@ SurfaceMeshContactor::queryAt(const Point & x) const
 }
 
 Real
-SurfaceMeshContactor::signedDistance(const Point & x) const
+SurfaceMeshContactor::signedDistanceRaw(const Point & x) const
 {
-  return queryAt(x).gap;
+  return queryAtRaw(x).gap;
 }
 
 RealVectorValue
-SurfaceMeshContactor::normal(const Point & x) const
+SurfaceMeshContactor::normalRaw(const Point & x) const
 {
-  return queryAt(x).normal;
+  return queryAtRaw(x).normal;
 }

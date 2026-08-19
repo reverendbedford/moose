@@ -106,3 +106,23 @@ RigidBodyNormalMechanicalContact::computeLowerDQpJacobian(Moose::ConstraintJacob
     return -query().normal(_component) * _test[_i][_qp] * _phi_lambda[_j][_qp];
   return 0;
 }
+
+Real
+RigidBodyNormalMechanicalContact::computeQpOffDiagJacobianScalar(unsigned int jv)
+{
+  // Small-strain path: n does not depend on the deformed position, and s only
+  // enters through n via the contactor's offset transform.  So dR/ds = 0.
+  if (!_finite_strain)
+    return 0;
+  // R = -lambda * n_k(x + u - s * load_dir) * phi_test.
+  // dR/ds = -lambda * (dn_k/dx_l * (-load_dir_l)) * phi_test
+  //       =  lambda * (H_{k,l} * load_dir_l) * phi_test
+  if (!_contactor.hasOffset() || jv != _contactor.offsetVariableNumber())
+    return 0;
+  const auto & q = query();
+  const auto & ld = _contactor.loadDirection();
+  Real Hkl_ld = 0.0;
+  for (const auto l : make_range(_ndisp))
+    Hkl_ld += q.hessian(_component, l) * ld(l);
+  return _lambda[_qp] * Hkl_ld * _test[_i][_qp];
+}

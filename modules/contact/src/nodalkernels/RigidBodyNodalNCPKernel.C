@@ -61,23 +61,30 @@ RigidBodyNodalNCPKernel::deformedNode() const
   return x;
 }
 
-Real
-RigidBodyNodalNCPKernel::physicalGap() const
+const LevelSetContactor::Query &
+RigidBodyNodalNCPKernel::query() const
 {
-  return _contactor.signedDistance(deformedNode());
+  const Point pt = deformedNode();
+  if (!_cache_valid || _cache_pt != pt)
+  {
+    _cache_pt = pt;
+    _cache_q = _contactor.queryAt(pt);
+    _cache_valid = true;
+  }
+  return _cache_q;
 }
 
 Real
 RigidBodyNodalNCPKernel::computeQpResidual()
 {
-  return std::min(_u[_qp], _c * physicalGap());
+  return std::min(_u[_qp], _c * query().gap);
 }
 
 Real
 RigidBodyNodalNCPKernel::computeQpJacobian()
 {
   // lambda-branch active -> R = lambda, dR/dlambda = 1.  gap-branch: dR/dlambda = 0.
-  if (_u[_qp] <= _c * physicalGap())
+  if (_u[_qp] <= _c * query().gap)
     return 1.0;
   return 0.0;
 }
@@ -87,10 +94,11 @@ RigidBodyNodalNCPKernel::computeQpOffDiagJacobian(unsigned int jvar)
 {
   // Only the gap-branch contributes off-diagonal (to the disp components at
   // the current node).  On the lambda-branch, R does not depend on disp.
-  if (_c * physicalGap() >= _u[_qp])
+  const auto & q = query();
+  if (_c * q.gap >= _u[_qp])
     return 0.0;
   for (const auto k : make_range(_ndisp))
     if (jvar == _disp_num[k])
-      return _c * _contactor.normal(deformedNode())(k);
+      return _c * q.normal(k);
   return 0.0;
 }

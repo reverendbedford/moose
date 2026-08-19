@@ -178,39 +178,51 @@ SurfaceMeshContactor::closestSurfacePoint(const Point & x, const libMesh::Elem *
   return best_cp;
 }
 
+LevelSetContactor::Query
+SurfaceMeshContactor::queryAt(const Point & x) const
+{
+  // One KDTree search + one point-in-solid classification serves gap, normal,
+  // and hessian.  The per-quantity accessors below defer to this method, so
+  // there is no slow path.
+  const libMesh::Elem * tri = nullptr;
+  const Point cp = closestSurfacePoint(x, tri);
+  const RealVectorValue v = x - cp;
+  const Real d = v.norm();
+  const bool inside = _manifold->contains(x);
+
+  Query q;
+  q.gap = inside ? -d : d;
+
+  if (d > _surface_tolerance)
+    // grad(g_LS(x)) = sign(x) * (x - CP(x)) / |x - CP(x)| — always points from
+    // interior toward exterior (the outward surface normal).  For an outside
+    // query, x - CP already points outward; for an inside query, we must flip.
+    q.normal = ((inside ? -1.0 : 1.0) / d) * v;
+  else
+  {
+    // On-surface fallback: use the closest triangle's outward face normal.
+    const Point & a = tri->point(0);
+    const Point & b = tri->point(1);
+    const Point & c = tri->point(2);
+    q.normal = (b - a).cross(c - a);
+    const Real nn = q.normal.norm();
+    if (nn > 0.0)
+      q.normal /= nn;
+  }
+
+  // Piecewise-flat facets ⇒ true Hessian is zero on facet interiors.
+  q.hessian = RealTensorValue();
+  return q;
+}
+
 Real
 SurfaceMeshContactor::signedDistance(const Point & x) const
 {
-  const libMesh::Elem * tri = nullptr;
-  const Point cp = closestSurfacePoint(x, tri);
-  const Real d = (x - cp).norm();
-  return _manifold->contains(x) ? -d : d;
+  return queryAt(x).gap;
 }
 
 RealVectorValue
 SurfaceMeshContactor::normal(const Point & x) const
 {
-  const libMesh::Elem * tri = nullptr;
-  const Point cp = closestSurfacePoint(x, tri);
-  const RealVectorValue v = x - cp;
-  const Real nrm = v.norm();
-  if (nrm > _surface_tolerance)
-  {
-    // grad(g_LS(x)) = sign(x) * (x - CP(x)) / |x - CP(x)| — always points
-    // from interior toward exterior (the outward surface normal).  For an
-    // outside query, x - CP already points outward; for an inside query, we
-    // must flip it.
-    const Real sign = _manifold->contains(x) ? -1.0 : 1.0;
-    return (sign / nrm) * v;
-  }
-
-  // On-surface fallback: use the closest triangle's outward face normal.
-  const Point & a = tri->point(0);
-  const Point & b = tri->point(1);
-  const Point & c = tri->point(2);
-  RealVectorValue n = (b - a).cross(c - a);
-  const Real nn = n.norm();
-  if (nn > 0.0)
-    n /= nn;
-  return n;
+  return queryAt(x).normal;
 }

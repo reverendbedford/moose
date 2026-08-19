@@ -48,6 +48,7 @@ public:
 
   virtual Real signedDistance(const Point & x) const override;
   virtual RealVectorValue normal(const Point & x) const override;
+  virtual Query queryAt(const Point & x) const override;
 
 private:
   /**

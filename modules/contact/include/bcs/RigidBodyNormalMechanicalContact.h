@@ -8,9 +8,8 @@
 //* https://www.gnu.org/licenses/lgpl-2.1.html
 
 #pragma once
+#include "LevelSetContactor.h"
 #include "LowerDIntegratedBC.h"
-
-class LevelSetContactor;
 
 /**
  * Traction on one displacement component from a rigid-body frictionless contact.
@@ -42,6 +41,10 @@ protected:
 private:
   Point deformedPoint() const;
   unsigned int dispIndex(unsigned int) const;
+  /// Cached contactor query at the current QP's deformed point.  Recomputes
+  /// lazily when the query point changes; the cache is a per-thread mutable
+  /// member (IntegratedBCs are cloned per thread).
+  const LevelSetContactor::Query & query() const;
 
   const LevelSetContactor & _contactor;
   const unsigned int _component;
@@ -49,4 +52,8 @@ private:
   std::vector<const VariableValue *> _disp;
   std::vector<unsigned int> _disp_num;
   const bool _finite_strain;
+
+  mutable Point _cache_pt;
+  mutable LevelSetContactor::Query _cache_q;
+  mutable bool _cache_valid = false;
 };

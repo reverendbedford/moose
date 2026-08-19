@@ -25,9 +25,30 @@ public:
   static InputParameters validParams();
   LevelSetContactor(const InputParameters & parameters);
 
+  /// Bundled result of all three quantities at a query point.  Callers that
+  /// need more than one component at the same point should prefer queryAt()
+  /// over the per-quantity accessors, because concrete contactors (notably
+  /// SurfaceMeshContactor) can share expensive per-point work (KDTree lookup,
+  /// point-in-solid classification) across the three quantities.
+  struct Query
+  {
+    Real gap;
+    RealVectorValue normal;
+    RealTensorValue hessian;
+  };
+
   virtual Real signedDistance(const Point & x) const = 0;
   virtual RealVectorValue normal(const Point & x) const = 0;
   virtual RealTensorValue hessian(const Point &) const { return RealTensorValue(); }
+
+  /// Default: forward to the three virtual accessors.  Concrete contactors
+  /// that can share per-point work should override this and, where practical,
+  /// implement signedDistance()/normal()/hessian() as one-line wrappers around
+  /// queryAt() so callers cannot accidentally pick the slow path.
+  virtual Query queryAt(const Point & x) const
+  {
+    return {signedDistance(x), normal(x), hessian(x)};
+  }
 
   virtual void initialize() override final {}
   virtual void execute() override final {}

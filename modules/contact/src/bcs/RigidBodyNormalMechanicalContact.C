@@ -61,10 +61,23 @@ RigidBodyNormalMechanicalContact::dispIndex(unsigned int v) const
   return libMesh::invalid_uint;
 }
 
+const LevelSetContactor::Query &
+RigidBodyNormalMechanicalContact::query() const
+{
+  const Point pt = deformedPoint();
+  if (!_cache_valid || _cache_pt != pt)
+  {
+    _cache_pt = pt;
+    _cache_q = _contactor.queryAt(pt);
+    _cache_valid = true;
+  }
+  return _cache_q;
+}
+
 Real
 RigidBodyNormalMechanicalContact::computeQpResidual()
 {
-  return -_lambda[_qp] * _contactor.normal(deformedPoint())(_component) * _test[_i][_qp];
+  return -_lambda[_qp] * query().normal(_component) * _test[_i][_qp];
 }
 
 Real
@@ -72,8 +85,7 @@ RigidBodyNormalMechanicalContact::computeQpJacobian()
 {
   if (!_finite_strain)
     return 0;
-  const auto H = _contactor.hessian(deformedPoint());
-  return -_lambda[_qp] * H(_component, _component) * _phi[_j][_qp] * _test[_i][_qp];
+  return -_lambda[_qp] * query().hessian(_component, _component) * _phi[_j][_qp] * _test[_i][_qp];
 }
 
 Real
@@ -84,17 +96,13 @@ RigidBodyNormalMechanicalContact::computeQpOffDiagJacobian(unsigned int jv)
   const auto l = dispIndex(jv);
   if (l == libMesh::invalid_uint || l == _component)
     return 0;
-  const auto H = _contactor.hessian(deformedPoint());
-  return -_lambda[_qp] * H(_component, l) * _phi[_j][_qp] * _test[_i][_qp];
+  return -_lambda[_qp] * query().hessian(_component, l) * _phi[_j][_qp] * _test[_i][_qp];
 }
 
 Real
 RigidBodyNormalMechanicalContact::computeLowerDQpJacobian(Moose::ConstraintJacobianType type)
 {
   if (type == Moose::PrimaryLower)
-  {
-    const auto n_k = _contactor.normal(deformedPoint())(_component);
-    return -n_k * _test[_i][_qp] * _phi_lambda[_j][_qp];
-  }
+    return -query().normal(_component) * _test[_i][_qp] * _phi_lambda[_j][_qp];
   return 0;
 }

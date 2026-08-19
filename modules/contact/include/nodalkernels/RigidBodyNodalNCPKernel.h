@@ -9,9 +9,8 @@
 
 #pragma once
 
+#include "LevelSetContactor.h"
 #include "NodalKernel.h"
-
-class LevelSetContactor;
 
 /**
  * Rigid-body frictionless contact - node-wise NCP enforced against an
@@ -46,11 +45,19 @@ protected:
 
 private:
   Point deformedNode() const;
-  Real physicalGap() const;
+  /// Return the cached contactor query for the current deformed node.
+  /// Recomputes lazily when the query point changes; the cache is a per-
+  /// thread mutable member (NodalKernels are cloned per thread, so mutable
+  /// state on the instance is safe).
+  const LevelSetContactor::Query & query() const;
 
   const LevelSetContactor & _contactor;
   const Real _c;
   const unsigned int _ndisp;
   std::vector<const VariableValue *> _disp;
   std::vector<unsigned int> _disp_num;
+
+  mutable Point _cache_pt;
+  mutable LevelSetContactor::Query _cache_q;
+  mutable bool _cache_valid = false;
 };

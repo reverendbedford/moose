@@ -58,9 +58,17 @@ private:
   static Point closestPointOnTriangle(const Point & p, const libMesh::Elem & tri);
 
   /**
-   * KDTree candidate search + closest-point evaluation; returns the closest
-   * point across all searched candidate triangles, and populates `closest_tri`
-   * with the triangle it lies on.
+   * Outward unit normal of a Tri3 element (assumes consistent CCW winding
+   * relative to the outward direction; validated at initialSetup).
+   */
+  static RealVectorValue faceNormal(const libMesh::Elem & tri);
+
+  /**
+   * KDTree lookup for the nearest triangle centroid, then also test that
+   * triangle's edge neighbors (up to 3 for Tri3).  Robust to moderate
+   * variation in triangle sizes; a KDTree hit whose true nearest surface
+   * point actually lies on a neighbor is recovered by the neighbor sweep.
+   * Populates `closest_tri` with the triangle carrying the closest point.
    */
   Point closestSurfacePoint(const Point & x, const libMesh::Elem *& closest_tri) const;
 
@@ -68,10 +76,8 @@ private:
   const Point _translation;
   const Real _scale;
   const Real _surface_tolerance;
-  const unsigned int _K;
 
   std::unique_ptr<libMesh::ReplicatedMesh> _mesh;
-  std::unique_ptr<TriangleManifold> _manifold;
   std::unique_ptr<KDTree> _kd_tree;
   std::vector<Point> _centroids;
   std::vector<const libMesh::Elem *> _triangles;

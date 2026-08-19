@@ -41,14 +41,8 @@ SurfaceMeshContactor::validParams()
       "surface_tolerance",
       1e-8,
       "surface_tolerance > 0",
-      "Absolute tolerance used by TriangleManifold for validation and near-surface "
-      "classification; choose relative to the mesh length scale.");
-  params.addRangeCheckedParam<unsigned int>(
-      "nearest_neighbors",
-      1,
-      "nearest_neighbors >= 1",
-      "Number of KDTree candidates to check per query.  1 is right for the vast majority of "
-      "meshes; increase for meshes with highly non-uniform triangle sizes.");
+      "Absolute tolerance used to validate the mesh (via TriangleManifold) at load time and "
+      "to detect on-surface queries.  Choose relative to the mesh length scale.");
   return params;
 }
 
@@ -57,8 +51,7 @@ SurfaceMeshContactor::SurfaceMeshContactor(const InputParameters & p)
     _file(getParam<FileName>("file")),
     _translation(getParam<Point>("translation")),
     _scale(getParam<Real>("scale")),
-    _surface_tolerance(getParam<Real>("surface_tolerance")),
-    _K(getParam<unsigned int>("nearest_neighbors"))
+    _surface_tolerance(getParam<Real>("surface_tolerance"))
 {
 }
 
@@ -80,9 +73,12 @@ SurfaceMeshContactor::initialSetup()
 
   _mesh->prepare_for_use();
 
-  // TriangleManifold's ctor validates Tri3-only + closed + oriented and builds the inside/outside
-  // acceleration structure.
-  _manifold = std::make_unique<TriangleManifold>(*_mesh, _surface_tolerance);
+  // TriangleManifold's ctor validates Tri3-only + closed + consistently oriented.
+  // We only need the validation (mooseError-on-invalid); we do not keep the
+  // manifold instance because queryAt() derives the SDF sign from the closest
+  // triangle's face normal, which is O(1) and does not need a runtime ray cast.
+  TriangleManifold validate(*_mesh, _surface_tolerance);
+  (void)validate;
 
   const auto n_active = _mesh->n_active_elem();
   _centroids.reserve(n_active);
@@ -94,6 +90,19 @@ SurfaceMeshContactor::initialSetup()
   }
 
   _kd_tree = std::make_unique<KDTree>(_centroids, /*leaf_max_size=*/10);
+}
+
+RealVectorValue
+SurfaceMeshContactor::faceNormal(const libMesh::Elem & tri)
+{
+  const Point & a = tri.point(0);
+  const Point & b = tri.point(1);
+  const Point & c = tri.point(2);
+  RealVectorValue n = (b - a).cross(c - a);
+  const Real nn = n.norm();
+  if (nn > 0.0)
+    n /= nn;
+  return n;
 }
 
 Point
@@ -157,22 +166,31 @@ SurfaceMeshContactor::closestPointOnTriangle(const Point & p, const libMesh::Ele
 Point
 SurfaceMeshContactor::closestSurfacePoint(const Point & x, const libMesh::Elem *& closest_tri) const
 {
-  std::vector<std::size_t> indices(_K);
-  _kd_tree->neighborSearch(x, _K, indices);
+  std::vector<std::size_t> indices(1);
+  _kd_tree->neighborSearch(x, 1, indices);
 
-  Real best_d2 = std::numeric_limits<Real>::max();
-  Point best_cp;
-  closest_tri = nullptr;
-  for (const auto idx : indices)
+  const libMesh::Elem * hit = _triangles[indices.front()];
+  Point best_cp = closestPointOnTriangle(x, *hit);
+  Real best_d2 = (x - best_cp).norm_sq();
+  closest_tri = hit;
+
+  // Robustness sweep: also test the hit's edge neighbors.  Handles the case
+  // where the true closest triangle is not the one whose centroid is nearest
+  // (possible when triangles have very different sizes or when x sits closer
+  // to a neighboring triangle's edge than to hit's).  Up to 3 extra
+  // closest-point tests for Tri3 — cheap relative to the KDTree lookup.
+  for (const auto s : make_range(hit->n_sides()))
   {
-    const auto * tri = _triangles[idx];
-    const Point cp = closestPointOnTriangle(x, *tri);
+    const libMesh::Elem * neigh = hit->neighbor_ptr(s);
+    if (!neigh)
+      continue; // safety; a validated closed manifold has no null neighbors.
+    const Point cp = closestPointOnTriangle(x, *neigh);
     const Real d2 = (x - cp).norm_sq();
     if (d2 < best_d2)
     {
       best_d2 = d2;
       best_cp = cp;
-      closest_tri = tri;
+      closest_tri = neigh;
     }
   }
   return best_cp;
@@ -181,34 +199,34 @@ SurfaceMeshContactor::closestSurfacePoint(const Point & x, const libMesh::Elem *
 LevelSetContactor::Query
 SurfaceMeshContactor::queryAt(const Point & x) const
 {
-  // One KDTree search + one point-in-solid classification serves gap, normal,
-  // and hessian.  The per-quantity accessors below defer to this method, so
-  // there is no slow path.
+  // One KDTree search + neighbor sweep serves gap, normal, and hessian.  The
+  // per-quantity accessors below defer to this method, so there is no slow
+  // path.
   const libMesh::Elem * tri = nullptr;
   const Point cp = closestSurfacePoint(x, tri);
   const RealVectorValue v = x - cp;
   const Real d = v.norm();
-  const bool inside = _manifold->contains(x);
+
+  // Sign of g_LS: derived from the closest triangle's face normal rather than
+  // a global point-in-solid ray cast.  For any consistently outward-oriented
+  // closed manifold, v is essentially parallel to the outward normal of the
+  // closest surface feature, so sign(v · n_face) tells us which side we're
+  // on.  This is O(1) per query and avoids the discrete sign flip that a
+  // TriangleManifold::contains fallback would introduce on the medial axis.
+  const RealVectorValue n_face = faceNormal(*tri);
+  const Real vdotn = v * n_face;
+  const Real sign = vdotn >= 0.0 ? 1.0 : -1.0;
 
   Query q;
-  q.gap = inside ? -d : d;
+  q.gap = sign * d;
 
   if (d > _surface_tolerance)
-    // grad(g_LS(x)) = sign(x) * (x - CP(x)) / |x - CP(x)| — always points from
-    // interior toward exterior (the outward surface normal).  For an outside
-    // query, x - CP already points outward; for an inside query, we must flip.
-    q.normal = ((inside ? -1.0 : 1.0) / d) * v;
+    // grad(g_LS(x)) = sign(x) * (x - CP(x)) / |x - CP(x)|.  Always the outward
+    // surface normal at CP: v/d itself on the outside, flipped on the inside.
+    q.normal = (sign / d) * v;
   else
-  {
-    // On-surface fallback: use the closest triangle's outward face normal.
-    const Point & a = tri->point(0);
-    const Point & b = tri->point(1);
-    const Point & c = tri->point(2);
-    q.normal = (b - a).cross(c - a);
-    const Real nn = q.normal.norm();
-    if (nn > 0.0)
-      q.normal /= nn;
-  }
+    // On-surface: v ≈ 0, use the closest triangle's face normal directly.
+    q.normal = n_face;
 
   // Piecewise-flat facets ⇒ true Hessian is zero on facet interiors.
   q.hessian = RealTensorValue();

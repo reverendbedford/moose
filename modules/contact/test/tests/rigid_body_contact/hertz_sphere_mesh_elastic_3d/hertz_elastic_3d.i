@@ -37,6 +37,11 @@
 []
 
 [UserObjects]
+  [contact_sparsity]
+    type = RigidBodyContactSparsity
+    lm_variable = normal_lm
+    displacements = 'disp_x disp_y disp_z'
+  []
   [sphere]
     type = SurfaceMeshContactor
     file = ../surface_mesh_contactor/unit_sphere.stl

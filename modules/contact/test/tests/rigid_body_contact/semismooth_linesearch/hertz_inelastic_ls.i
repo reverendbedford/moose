@@ -32,6 +32,11 @@
 []
 
 [UserObjects]
+  [contact_sparsity]
+    type = RigidBodyContactSparsity
+    lm_variable = normal_lm
+    displacements = 'disp_x disp_y'
+  []
   [sphere]
     type = SphereContactor
     center = '0 -4 0'

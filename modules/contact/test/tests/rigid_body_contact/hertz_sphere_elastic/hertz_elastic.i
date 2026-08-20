@@ -46,6 +46,11 @@
 []
 
 [UserObjects]
+  [contact_sparsity]
+    type = RigidBodyContactSparsity
+    lm_variable = normal_lm
+    displacements = 'disp_x disp_y'
+  []
   [sphere]
     type = SphereContactor
     center = '0 -4 0'                 # sphere top at y = -2, tangent to material tip at t = 0

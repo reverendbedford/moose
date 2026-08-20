@@ -5,16 +5,15 @@
 #
 # Solver: plain `newtonls` + LU + `basic` line search + no bounds.
 # The physics enforces lambda >= 0 on its own (the material cannot pull
-# on the rigid body across the contact interface).  Two alternative
-# configurations converge to the same answer but were rejected for CI:
-#   * `vinewtonssls` + ConstantBounds on `normal_lm` + `semismooth`:
-#     residual oscillates and KSP stalls.  The semismooth line search's
-#     FB-merit acceptance conflicts with the scalar constraint residual.
-#   * `vinewtonssls` + bounds + `basic`: converges to the same state
-#     but ~20x slower (~500s vs ~23s).  SSLS's bound projection cuts
-#     progress on every Newton step in a way `basic` line search can't
-#     compensate for.  Available for production runs where the strict
-#     mathematical bound enforcement is worth the wait.
+# on the rigid body across the contact interface).  The alternative
+# `vinewtonssls` + `basic` + ConstantBounds converges to the same
+# fixed point but takes ~20x wall time because SSLS's bound projection
+# refactors LU each iteration AND cuts step size so that
+# IterationAdaptiveDT falls back to smaller dt — 5x per-iter cost x 5x
+# more Newton iters.  The malloc bug that was suspected of causing the
+# slowdown is closed by the [UserObjects]/contact_sparsity block, but
+# it turned out to cost < 1s of the ~500s difference; the remainder is
+# real SSLS algorithmic overhead on this coupled-scalar problem.
 
 [GlobalParams]
   displacements = 'disp_x disp_y disp_z'
@@ -42,6 +41,11 @@
 []
 
 [UserObjects]
+  [contact_sparsity]
+    type = RigidBodyContactSparsity
+    lm_variable = normal_lm
+    displacements = 'disp_x disp_y disp_z'
+  []
   [sphere]
     type = SphereContactor
     center = '0 -4 0'

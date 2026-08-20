@@ -2,6 +2,19 @@
 # pushed upward into a top-pinned deformable body by a scalar Lagrange
 # multiplier `indenter_y`, adjusted by RigidBodyLoadControl until the
 # integrated normal contact reaction matches the target F(t).
+#
+# Solver: plain `newtonls` + LU + `basic` line search + no bounds.
+# The physics enforces lambda >= 0 on its own (the material cannot pull
+# on the rigid body across the contact interface).  Two alternative
+# configurations converge to the same answer but were rejected for CI:
+#   * `vinewtonssls` + ConstantBounds on `normal_lm` + `semismooth`:
+#     residual oscillates and KSP stalls.  The semismooth line search's
+#     FB-merit acceptance conflicts with the scalar constraint residual.
+#   * `vinewtonssls` + bounds + `basic`: converges to the same state
+#     but ~20x slower (~500s vs ~23s).  SSLS's bound projection cuts
+#     progress on every Newton step in a way `basic` line search can't
+#     compensate for.  Available for production runs where the strict
+#     mathematical bound enforcement is worth the wait.
 
 [GlobalParams]
   displacements = 'disp_x disp_y disp_z'
@@ -72,17 +85,11 @@
 []
 
 [AuxVariables]
-  [bounds_dummy]
-    family = LAGRANGE
-    order = FIRST
-    block = contact_lower
-  []
   [nodal_area]
     family = LAGRANGE
     order = FIRST
   []
 []
-
 
 [Kernels]
   [sdx]
@@ -215,13 +222,6 @@
   solve_type = NEWTON
   automatic_scaling = true
 
-  # Plain Newton with LU direct solve.  The min-NCP bound-projection path
-  # (vinewtonssls + semismooth line search) that the pre-existing rigid-
-  # contact tests use interacts badly with the scalar Lagrange multiplier's
-  # dense-row coupling in 3D — GMRES stalls on the second-plus Newton iter
-  # once the active set changes.  Without bounds, plain Newton on the
-  # NCP residual converges quadratically at every step and keeps
-  # lambda >= 0 by physics (the material can't pull on the rigid body).
   petsc_options_iname = '-snes_type -pc_type -pc_factor_shift_type -pc_factor_shift_amount'
   petsc_options_value = 'newtonls    lu       NONZERO               1e-12'
 

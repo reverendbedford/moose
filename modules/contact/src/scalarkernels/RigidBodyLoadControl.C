@@ -23,36 +23,33 @@ InputParameters
 RigidBodyLoadControl::validParams()
 {
   InputParameters params = NodalScalarKernel::validParams();
-  params.addClassDescription("Load-control equation for a rigid-body contactor.  Enforces "
-                             "F(t) = Sum_i w_i * lambda_i * (n_i . load_direction) at each "
-                             "converged Newton state, where the scalar variable is the rigid "
-                             "body's translation along `load_direction`.");
-  params.addRequiredParam<FunctionName>("force",
-                                        "Function returning the applied force magnitude F(t) "
-                                        "along the contactor's load_direction.");
+  params.addClassDescription(
+      "Load-control constraint for a rigid-body contactor: enforces "
+      "F(t) = Sum_i w_i * lambda_i * (n_i . direction) so that the scalar "
+      "variable driving the contactor's translation in `direction` is "
+      "determined by the target contact reaction.");
+  params.addRequiredParam<FunctionName>(
+      "force", "Function returning the target integrated contact reaction F(t) along direction.");
   params.addRequiredParam<UserObjectName>(
       "contactor",
-      "LevelSetContactor.  Must have offset_variable = this ScalarKernel's `variable`.");
+      "LevelSetContactor whose translation in `direction` is driven by this kernel's `variable`.");
   params.addRequiredParam<UserObjectName>(
-      "nodal_area", "NodalArea UserObject providing tributary weights w_i on the contact sideset.");
-  params.addRequiredCoupledVar("lm_variable",
-                               "The Lagrange multiplier field variable (nodal, on the sideset's "
-                               "lower-d block).");
+      "nodal_area", "NodalArea UO providing tributary weights w_i on the contact sideset.");
+  params.addRequiredCoupledVar(
+      "lm_variable",
+      "The Lagrange multiplier field variable (nodal, on the contact sideset's lower-d block).");
   params.addRequiredCoupledVar("displacements", "Displacement variables in order (x, y[, z]).");
+  params.addRequiredParam<Point>(
+      "direction",
+      "Unit vector along which the integrated normal contact reaction is measured.  Must be "
+      "aligned with a Cartesian axis and match the contactor axis driven by this kernel's "
+      "`variable`.");
   params.addRangeCheckedParam<Real>(
       "c",
       1.0,
       "c > 0",
-      "NCP scaling on the gap.  Must match the `c` used by the companion "
-      "RigidBodyNodalNCPKernel so the assembled d R_lambda / d s block is correct.");
-  params.addRangeCheckedParam<Real>(
-      "spring_stiffness",
-      0.0,
-      "spring_stiffness >= 0",
-      "Optional linear spring reacting the rigid body's offset (adds K_s*s to R_s and K_s to "
-      "the (s, s) Jacobian diagonal).  Regularizes the otherwise singular scalar diagonal "
-      "when the load-control equation is used off the equilibrium manifold.  Set to a small "
-      "fraction of the material's tangent stiffness times a characteristic contact area.");
+      "NCP scaling on the gap.  MUST match the `c` used by the companion "
+      "RigidBodyNodalNCPKernel so the (LM_row, scalar_col) transpose Jacobian block is correct.");
   return params;
 }
 
@@ -61,25 +58,47 @@ RigidBodyLoadControl::RigidBodyLoadControl(const InputParameters & parameters)
     _force(getFunction("force")),
     _contactor(getUserObject<LevelSetContactor>("contactor")),
     _nodal_area(getUserObject<NodalArea>("nodal_area")),
+    _direction(getParam<Point>("direction")),
     _c(getParam<Real>("c")),
-    _spring_stiffness(getParam<Real>("spring_stiffness")),
     _lm_var_num(coupled("lm_variable")),
     _lambda(coupledValue("lm_variable")),
     _ndisp(coupledComponents("displacements")),
     _disp_var_num(_ndisp),
     _disp(_ndisp)
 {
-  if (!_contactor.hasOffset())
+  const Real n = _direction.norm();
+  if (n < TOLERANCE)
+    paramError("direction", "Must be a nonzero vector.");
+  _direction /= n;
+
+  // Verify the direction is aligned with a Cartesian axis, and that the
+  // contactor's translation input on that axis is the scalar we are the
+  // kernel of.  Anything else means the user's plumbing is inconsistent.
+  unsigned int axis = libMesh::invalid_uint;
+  for (const auto k : {0u, 1u, 2u})
+    if (std::abs(std::abs(_direction(k)) - 1.0) < TOLERANCE)
+      axis = k;
+  if (axis == libMesh::invalid_uint)
+    paramError("direction",
+               "Must be aligned with a Cartesian axis (a signed unit vector on x, y, or z).");
+  const unsigned int contactor_scalar = _contactor.translationScalarNumber(axis);
+  if (contactor_scalar == libMesh::invalid_uint)
     paramError("contactor",
-               "Load control requires the contactor to have `offset_variable` set — "
-               "otherwise there is no rigid-body DoF to solve for.");
-  if (_contactor.offsetVariableNumber() != _var.number())
-    paramError("contactor",
-               "The contactor's `offset_variable` (variable number ",
-               _contactor.offsetVariableNumber(),
-               ") must match this kernel's `variable` (number ",
+               "The contactor's translation on axis ",
+               axis,
+               " must be driven by a Scalar variable (via disp_",
+               std::array<const char *, 3>{"x", "y", "z"}[axis],
+               "_scalar) for this kernel to close the load-control loop.");
+  if (contactor_scalar != _var.number())
+    paramError("variable",
+               "This kernel's `variable` (number ",
                _var.number(),
+               ") must match the Scalar variable driving the contactor's axis-",
+               axis,
+               " translation (number ",
+               contactor_scalar,
                ").");
+
   for (const auto k : make_range(_ndisp))
   {
     _disp[k] = &coupledValue("displacements", k);
@@ -107,52 +126,40 @@ RigidBodyLoadControl::computeResidual()
     const Node * node = _mesh.getMesh().node_ptr(_node_ids[k]);
     const Real w = _nodal_area.nodalArea(node);
     const auto q = _contactor.queryAt(deformedNode(k));
-    reaction += w * _lambda[k] * (q.normal * _contactor.loadDirection());
+    reaction += w * _lambda[k] * (q.normal * _direction);
   }
 
   prepareVectorTag(_assembly, _var.number());
-  // Physical spring: reacts the rigid body's motion, F_spring = -K*s along
-  // load_direction.  Signed as -K*s in R_s = F(t) + F_spring - reaction.
-  _local_re(0) = F - reaction - _spring_stiffness * _contactor.offset();
+  _local_re(0) = reaction - F;
   assignTaggedLocalResidual();
 }
 
 void
 RigidBodyLoadControl::computeJacobian()
 {
-  const auto & ld = _contactor.loadDirection();
+  // Precompute per-node normal projections (also decides which branch of
+  // the NCP each node is on, for the transpose block).
+  const auto N = _node_ids.size();
+  std::vector<Real> n_dot_dir(N);
+  std::vector<bool> gap_branch(N);
+  for (const auto k : index_range(_node_ids))
+  {
+    const auto q = _contactor.queryAt(deformedNode(k));
+    n_dot_dir[k] = q.normal * _direction;
+    gap_branch[k] = _c * q.gap < _lambda[k];
+  }
 
-  // (scalar_row, scalar_col): dR_s/ds = _spring_stiffness (0 by default =
-  // pure load control; a nonzero spring provides a well-conditioned
-  // regularization when the transpose (LM_row, s_col) block does not by
-  // itself give the scalar column enough rank).
+  // (scalar_row, scalar_col): dR_s/ds = 0 in this formulation (F(t) does
+  // not depend on s and the reaction depends on s only indirectly through
+  // the geometric term dn/ds, which is a hessian order term we drop).
+  // PETSc's sparsity still needs the entry, so assemble an explicit zero.
   prepareMatrixTag(_assembly, _var.number(), _var.number());
   for (const auto i : make_range(_local_ke.m()))
     for (const auto j : make_range(_local_ke.n()))
       _local_ke(i, j) = 0.0;
-  _local_ke(0, 0) = -_spring_stiffness; // d(-K*s)/ds = -K
   assignTaggedLocalMatrix();
 
-  // (scalar_row, lm_col): dR_s / dlambda_j = -w_j * (n_j . load_dir).
-  // (scalar_row, disp_k_col): dR_s / d disp_k(j) is a hessian-order term
-  //   (d n_j / d disp_k = H_{k,l}); left at 0 for MVP.
-  // (lm_row, scalar_col): dR_lambda_j / ds = -c * (n_j . load_dir)  on gap
-  //   branch, 0 on lambda branch.  Filled here because NodalKernel has no
-  //   scalar off-diagonal hook.
-  const auto N = _node_ids.size();
-
-  // Precompute per-node reaction contributions and branch states so both
-  // block fills below share the same query results.
-  std::vector<Real> n_dot_ld(N);
-  std::vector<bool> gap_branch_active(N);
-  for (const auto k : index_range(_node_ids))
-  {
-    const auto q = _contactor.queryAt(deformedNode(k));
-    n_dot_ld[k] = q.normal * ld;
-    gap_branch_active[k] = _c * q.gap < _lambda[k];
-  }
-
-  // (scalar_row, lm_col)
+  // (scalar_row, lambda_col): dR_s / dlambda_j = -w_j * (n_j . direction).
   prepareMatrixTag(_assembly, _var.number(), _lm_var_num);
   for (const auto i : make_range(_local_ke.m()))
     for (const auto j : make_range(_local_ke.n()))
@@ -161,20 +168,31 @@ RigidBodyLoadControl::computeJacobian()
   {
     const Node * node = _mesh.getMesh().node_ptr(_node_ids[k]);
     const Real w = _nodal_area.nodalArea(node);
-    _local_ke(0, k) = -w * n_dot_ld[k];
+    _local_ke(0, k) = w * n_dot_dir[k];
   }
   assignTaggedLocalMatrix();
 
-  // (lm_row, scalar_col).  Fills the entries the NCP kernel can't reach
-  // (NodalKernel has no scalar off-diagonal hook).  Without these entries
-  // the scalar column of the Jacobian is empty and δs is under-determined,
-  // making the linear system rank-deficient.
-  prepareMatrixTag(_assembly, _lm_var_num, _var.number());
-  for (const auto i : make_range(_local_ke.m()))
-    for (const auto j : make_range(_local_ke.n()))
-      _local_ke(i, j) = 0.0;
+  // (lambda_row, scalar_col): the transpose block.  For each LM node on the
+  // gap branch of min(lambda, c*g), R_lambda = c * g_LS(x - s*direction), so
+  // dR_lambda / ds = c * grad(g_LS) . (-direction) = -c * (n . direction).
+  // Lambda-branch nodes have R_lambda = lambda (independent of s).
+  //
+  // MOOSE's ScalarKernel dispatch (`addJacobianOffDiagScalar`) only fills
+  // (scalar_row × field_col) blocks — it never fills (field_row × scalar_col).
+  // NodalKernel likewise has no scalar off-diagonal hook.  The idiomatic
+  // workaround (MortarScalarBase pattern) is direct assembly via
+  // TaggingInterface::addJacobian with explicit row/column DoF indices,
+  // bypassing the tagged-block dispatch.
+  const auto & lm_var = _sys.getVariable(_tid, _lm_var_num);
+  const auto & scalar_dofs = _var.dofIndices();
+  std::vector<dof_id_type> lm_dofs(N);
   for (const auto k : index_range(_node_ids))
-    if (gap_branch_active[k])
-      _local_ke(k, 0) = -_c * n_dot_ld[k];
-  assignTaggedLocalMatrix();
+    lm_dofs[k] = _mesh.getMesh().node_ref(_node_ids[k]).dof_number(
+        _sys.number(), _lm_var_num, /*comp=*/0);
+
+  DenseMatrix<Real> ke_transpose(N, 1);
+  for (const auto k : index_range(_node_ids))
+    if (gap_branch[k])
+      ke_transpose(k, 0) = -_c * n_dot_dir[k];
+  addJacobian(_assembly, ke_transpose, lm_dofs, scalar_dofs, lm_var.scalingFactor());
 }

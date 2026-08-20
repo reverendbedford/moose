@@ -16,24 +16,26 @@ class LevelSetContactor;
 class NodalArea;
 
 /**
- * Load-control equation for a rigid-body contactor.
+ * Load-control constraint for a rigid-body contactor.
  *
- * Solves the Scalar residual
+ * The scalar variable `s` is the contactor's translation along `direction`
+ * (via the contactor's `disp_x/y/z_scalar` inputs).  Newton adjusts `s` so
+ * the integrated normal contact reaction equals a prescribed target:
  *
- *   R_s = F(t) - Sum_i w_i * lambda_i * (n_i . load_direction) = 0
+ *   R_s = Sum_i w_i * lambda_i * (n_i . direction) - F(t) = 0
  *
- * where the sum is over LM nodes on the contact sideset's lower-d block,
- * w_i is the tributary nodal area (from a companion NodalArea UO), lambda_i
- * is the nodal Lagrange multiplier (contact pressure), n_i is the outward
- * contactor normal at the deformed node position, and `load_direction` is
- * the unit vector of the applied force.  The scalar unknown `s` is the
- * rigid body's translation along `load_direction`, and the contactor
- * transforms all query points by `x - s * load_direction`.
+ * where the sum is over LM nodes on the contact sideset, w_i is the
+ * tributary nodal area (from a companion NodalArea UO), lambda_i is the
+ * nodal contact pressure, and n_i is the contactor's outward normal at
+ * the deformed node position.
  *
- * The Jacobian assembles both the scalar-row-times-field-column blocks
- * (d R_s / d lambda_i, d R_s / d disp_k(i)) and the transpose block
- * d R_lambda_i / d s (which the NCP kernel cannot fill because MOOSE's
- * NodalKernel base class has no scalar off-diagonal hook).
+ * The Jacobian assembles:
+ *  * (scalar_row, lambda_col) : -w_j * (n_j . direction)   — direct.
+ *  * (lambda_row, scalar_col) : -c * (n_j . direction) on gap-branch nodes,
+ *    0 elsewhere — transpose block that MOOSE's NodalKernel framework can't
+ *    fill (NodalKernel has no scalar off-diagonal hook), so this kernel
+ *    fills it directly.  The `c` parameter MUST match the companion
+ *    RigidBodyNodalNCPKernel's `c` for the Jacobian to be consistent.
  */
 class RigidBodyLoadControl : public NodalScalarKernel
 {
@@ -51,8 +53,8 @@ private:
   const Function & _force;
   const LevelSetContactor & _contactor;
   const NodalArea & _nodal_area;
+  Point _direction;
   const Real _c;
-  const Real _spring_stiffness;
 
   const unsigned int _lm_var_num;
   const VariableValue & _lambda; ///< Per-node LM values after reinitNodes.

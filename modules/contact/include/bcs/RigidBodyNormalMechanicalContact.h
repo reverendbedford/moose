@@ -30,7 +30,6 @@ protected:
   virtual Real computeQpResidual() override;
   virtual Real computeQpJacobian() override;
   virtual Real computeQpOffDiagJacobian(unsigned int) override;
-  virtual Real computeQpOffDiagJacobianScalar(unsigned int jvar) override;
   virtual Real computeLowerDQpResidual() override { return 0; }
   virtual Real computeLowerDQpJacobian(Moose::ConstraintJacobianType type) override;
   virtual Real computeLowerDQpOffDiagJacobian(Moose::ConstraintJacobianType,

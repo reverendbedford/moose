@@ -8,8 +8,9 @@
     rel_err = 1e-4
     max_parallel = 1
     heavy = true
-    requirement = 'The system shall drive a rigid analytic contactor against an elastic body via '
-                  'a prescribed applied force through a Scalar variable representing the rigid '
-                  'body translation and a companion RigidBodyLoadControl NodalScalarKernel.'
+    requirement = 'Newton shall drive a rigid contactor via a Scalar Lagrange multiplier so the '
+                  'integrated normal contact reaction matches a prescribed target force at each '
+                  'converged step, with the deformable body deforming exactly as under '
+                  'displacement control and without any fictitious stiffness.'
   []
 []

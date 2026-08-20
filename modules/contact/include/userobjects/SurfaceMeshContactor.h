@@ -51,8 +51,6 @@ protected:
   virtual RealVectorValue normalRaw(const Point & x) const override;
   virtual Query queryAtRaw(const Point & x) const override;
 
-public:
-
 private:
   /**
    * Find the closest point on `tri` (assumed Tri3) to `p`.  Standard

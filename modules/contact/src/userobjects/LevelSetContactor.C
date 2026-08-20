@@ -8,50 +8,77 @@
 //* https://www.gnu.org/licenses/lgpl-2.1.html
 
 #include "LevelSetContactor.h"
+#include "Function.h"
+
+namespace
+{
+constexpr std::array<const char *, 3> AXIS_NAMES = {"x", "y", "z"};
+}
 
 InputParameters
 LevelSetContactor::validParams()
 {
   InputParameters params = GeneralUserObject::validParams();
   params.addClassDescription("Base class for a rigid contactor described implicitly by a "
-                             "signed-distance (level-set) function.");
-  params.addCoupledVar("offset_variable",
-                       "Optional Scalar variable representing the rigid body's translation along "
-                       "`load_direction`.  When present, every query point x is evaluated as "
-                       "x - s * load_direction, so a companion RigidBodyLoadControl can drive s "
-                       "under a prescribed external force.");
-  params.addParam<Point>(
-      "load_direction",
-      "Unit vector giving the direction the rigid body moves when its offset scalar "
-      "grows positive.  Required if `offset_variable` is set.");
+                             "signed-distance (level-set) function, optionally translated in "
+                             "each Cartesian axis by a Function or a coupled Scalar variable.");
+  for (const auto axis : AXIS_NAMES)
+  {
+    params.addParam<FunctionName>(std::string("disp_") + axis + "_function",
+                                  "Optional Function giving the contactor's rigid translation "
+                                  "along the " +
+                                      std::string(axis) + " axis.  Mutually exclusive with "
+                                                          "`disp_" +
+                                      std::string(axis) + "_scalar`.");
+    params.addCoupledVar(std::string("disp_") + axis + "_scalar",
+                         "Optional coupled Scalar variable giving the contactor's rigid "
+                         "translation along the " +
+                             std::string(axis) + " axis.  Mutually exclusive with `disp_" +
+                             std::string(axis) + "_function`.");
+  }
   return params;
 }
 
 LevelSetContactor::LevelSetContactor(const InputParameters & parameters)
-  : GeneralUserObject(parameters),
-    _offset_scalar_value(nullptr),
-    _offset_scalar_number(libMesh::invalid_uint),
-    _load_direction()
+  : GeneralUserObject(parameters), _function{{nullptr, nullptr, nullptr}}, _scalar{
+                                                                               {nullptr,
+                                                                                nullptr,
+                                                                                nullptr}}
 {
-  if (isCoupledScalar("offset_variable"))
+  _scalar_var_num.fill(libMesh::invalid_uint);
+  for (const auto k : {0u, 1u, 2u})
   {
-    _offset_scalar_value = &coupledScalarValue("offset_variable");
-    _offset_scalar_number = coupledScalar("offset_variable");
-
-    if (!isParamValid("load_direction"))
-      paramError("load_direction", "Must be set when `offset_variable` is set.");
-    _load_direction = getParam<Point>("load_direction");
-    const Real n = _load_direction.norm();
-    if (n < TOLERANCE)
-      paramError("load_direction", "Must be a nonzero vector.");
-    _load_direction /= n; // normalize so callers can treat as a unit vector
+    const std::string fname = std::string("disp_") + AXIS_NAMES[k] + "_function";
+    const std::string sname = std::string("disp_") + AXIS_NAMES[k] + "_scalar";
+    const bool has_func = isParamValid(fname);
+    const bool has_scal = isCoupledScalar(sname);
+    if (has_func && has_scal)
+      paramError(fname,
+                 "`",
+                 fname,
+                 "` and `",
+                 sname,
+                 "` are mutually exclusive: pick one input per axis.");
+    if (has_func)
+      _function[k] = &getFunction(fname);
+    else if (has_scal)
+    {
+      _scalar[k] = &coupledScalarValue(sname);
+      _scalar_var_num[k] = coupledScalar(sname);
+    }
   }
-  else if (isParamValid("load_direction"))
-    paramError("load_direction", "Only meaningful when `offset_variable` is set.");
 }
 
-Real
-LevelSetContactor::offset() const
+Point
+LevelSetContactor::translation() const
 {
-  return _offset_scalar_number == libMesh::invalid_uint ? 0.0 : (*_offset_scalar_value)[0];
+  Point t;
+  for (const auto k : {0u, 1u, 2u})
+  {
+    if (_scalar[k] != nullptr)
+      t(k) = (*_scalar[k])[0];
+    else if (_function[k] != nullptr)
+      t(k) = _function[k]->value(_t, Point());
+  }
+  return t;
 }

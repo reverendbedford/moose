@@ -1,0 +1,47 @@
+[Tests]
+  design = 'LevelSetContactor.md SphereContactor.md RigidBodyLoadControl.md'
+  issues = '#0000'
+  # This directory hosts three tests that run the SAME physical problem —
+  # a rigid sphere pressed into an elastic body under load control — with
+  # contact along the +y, +x, and +z axes respectively.  The X and Z
+  # variants apply a TransformGenerator rotation of the mesh and permute
+  # every axis-tagged parameter (SphereContactor center, disp_[xyz]_scalar,
+  # RigidBodyLoadControl.direction, scalar-variable name, DirichletBC
+  # variables) so the physical setup is invariant.  All three golds hold
+  # identical numerical values (bit-for-bit at 1e-13 relative) for the
+  # shared postprocessor columns applied_force, indenter_translation,
+  # max_lm, num_nl, cumulative_nl — only the raw scalar column label
+  # differs (indenter_x / indenter_y / indenter_z).  If any of the rigid-
+  # body contact classes gains an axis-dependent bug (users have reported
+  # trouble with contact directions other than z), at least one variant's
+  # gold diff fails.
+  [hertz_y]
+    type = 'CSVDiff'
+    input = 'hertz_y.i'
+    csvdiff = 'hertz_y_csv.csv'
+    rel_err = 1e-4
+    max_parallel = 4
+    requirement = 'The rigid-body contact stack shall produce a bit-for-bit-consistent '
+                  'load-control solution with the contact direction along +y.'
+  []
+  [hertz_x]
+    type = 'CSVDiff'
+    input = 'hertz_x.i'
+    csvdiff = 'hertz_x_csv.csv'
+    rel_err = 1e-4
+    max_parallel = 4
+    requirement = 'The rigid-body contact stack shall be frame-invariant: rotating the mesh '
+                  'and every axis-tagged parameter so the sphere pushes in +x (from a baseline '
+                  'that pushes in +y) shall produce identical postprocessor values.'
+  []
+  [hertz_z]
+    type = 'CSVDiff'
+    input = 'hertz_z.i'
+    csvdiff = 'hertz_z_csv.csv'
+    rel_err = 1e-4
+    max_parallel = 4
+    requirement = 'The rigid-body contact stack shall be frame-invariant: rotating the mesh '
+                  'and every axis-tagged parameter so the sphere pushes in +z (from a baseline '
+                  'that pushes in +y) shall produce identical postprocessor values.'
+  []
+[]

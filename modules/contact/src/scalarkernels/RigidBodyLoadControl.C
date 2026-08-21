@@ -10,9 +10,11 @@
 #include "RigidBodyLoadControl.h"
 
 #include "Assembly.h"
+#include "AuxiliarySystem.h"
 #include "Function.h"
 #include "LevelSetContactor.h"
 #include "MooseMesh.h"
+#include "MooseVariable.h"
 #include "MooseVariableScalar.h"
 #include "NodalArea.h"
 #include "SystemBase.h"
@@ -28,6 +30,14 @@ RigidBodyLoadControl::validParams()
       "F(t) = Sum_i w_i * lambda_i * (n_i . direction) so that the scalar "
       "variable driving the contactor's translation in `direction` is "
       "determined by the target contact reaction.");
+  // Parallel: MOOSE only calls ScalarKernel::computeResidual/Jacobian on
+  // the rank owning the scalar DoF (which is the last MPI rank), so that
+  // rank must see EVERY boundary node in `_node_ids` to correctly sum
+  // the integrated reaction and populate the Jacobian blocks.  The
+  // required GhostBoundary relationship manager is registered by the
+  // companion `RigidBodyContactSparsity` UO — it has to be there anyway
+  // for the sparsity augmentation, so its GhostBoundary side effect
+  // covers this kernel's parallel needs too.
   params.addRequiredParam<FunctionName>(
       "force", "Function returning the target integrated contact reaction F(t) along direction.");
   params.addRequiredParam<UserObjectName>(
@@ -116,17 +126,55 @@ RigidBodyLoadControl::deformedNode(std::size_t k) const
   return x;
 }
 
+Point
+RigidBodyLoadControl::deformedNodePoint(const Node & node, std::size_t compressed) const
+{
+  // Compressed = index into `_lambda` / `_disp` vectors (only accessible
+  // + semi-local nodes were stored, in _node_ids order).
+  Point x = node;
+  for (const auto d : make_range(_ndisp))
+    x(d) += (*_disp[d])[compressed];
+  return x;
+}
+
+bool
+RigidBodyLoadControl::nodeIsAccessible(std::size_t k) const
+{
+  return _mesh.getMesh().query_node_ptr(_node_ids[k]) != nullptr;
+}
+
 void
 RigidBodyLoadControl::computeResidual()
 {
+  // Parallel note: MOOSE calls ScalarKernel::computeResidual only on the
+  // rank that owns the scalar DoF (NonlinearSystemBase.C ~line 1846), so
+  // this method is single-rank and cannot do MPI-collective reductions.
+  // The owning rank sees every boundary node in `_node_ids` (populated
+  // globally in NodalScalarKernel), and by way of MOOSE's ghosting the
+  // ones it does not own directly are still accessible via query_node_ptr
+  // — we still guard with a null check for robustness against unusual
+  // partitions.  `_lambda[k]` and `_disp[k]` at those ghosted nodes carry
+  // the correct up-to-date values because `NodalScalarKernel::reinit()`
+  // called `_subproblem.reinitNodes(_node_ids, _tid)` beforehand.
   const Real F = _force.value(_t, Point());
   Real reaction = 0.0;
+  // `_lambda` and `_disp[k]` are populated by NodalScalarKernel::reinit()
+  // via reinitNodes, which pushes one entry per node in `_node_ids` that
+  // is accessible AND semi-local (owned or ghosted) on this rank.  In
+  // parallel the compressed count may be smaller than `_node_ids.size()`,
+  // so we can't simply index `_lambda[k]` with the full-list `k` —
+  // instead iterate a running compressed index over accessible nodes,
+  // matching the order MOOSE used internally.
+  std::size_t j = 0;
   for (const auto k : index_range(_node_ids))
   {
+    if (!nodeIsAccessible(k))
+      continue;
     const Node * node = _mesh.getMesh().node_ptr(_node_ids[k]);
     const Real w = _nodal_area.nodalArea(node);
-    const auto q = _contactor.queryAt(deformedNode(k));
-    reaction += w * _lambda[k] * (q.normal * _direction);
+    const auto q = _contactor.queryAt(deformedNodePoint(*node, j));
+    reaction += w * _lambda[j] * (q.normal * _direction);
+    ++j;
   }
 
   prepareVectorTag(_assembly, _var.number());
@@ -138,15 +186,23 @@ void
 RigidBodyLoadControl::computeJacobian()
 {
   // Precompute per-node normal projections (also decides which branch of
-  // the NCP each node is on, for the transpose block).
+  // the NCP each node is on, for the transpose block).  Same
+  // single-rank-with-ghosted-nodes assumption as computeResidual.
   const auto N = _node_ids.size();
-  std::vector<Real> n_dot_dir(N);
-  std::vector<bool> gap_branch(N);
+  std::vector<Real> n_dot_dir(N, 0.0);
+  std::vector<bool> gap_branch(N, false);
+  // Compressed indexing again (see computeResidual): _lambda[j], _disp[j]
+  // where j is the running count over accessible+semi-local nodes.
+  std::size_t j = 0;
   for (const auto k : index_range(_node_ids))
   {
-    const auto q = _contactor.queryAt(deformedNode(k));
+    if (!nodeIsAccessible(k))
+      continue;
+    const Node * node = _mesh.getMesh().node_ptr(_node_ids[k]);
+    const auto q = _contactor.queryAt(deformedNodePoint(*node, j));
     n_dot_dir[k] = q.normal * _direction;
-    gap_branch[k] = _c * q.gap < _lambda[k];
+    gap_branch[k] = _c * q.gap < _lambda[j];
+    ++j;
   }
 
   // (scalar_row, scalar_col): dR_s/ds = 0 in this formulation (F(t) does
@@ -166,6 +222,8 @@ RigidBodyLoadControl::computeJacobian()
       _local_ke(i, j) = 0.0;
   for (const auto k : index_range(_node_ids))
   {
+    if (!nodeIsAccessible(k))
+      continue;
     const Node * node = _mesh.getMesh().node_ptr(_node_ids[k]);
     const Real w = _nodal_area.nodalArea(node);
     _local_ke(0, k) = w * n_dot_dir[k];
@@ -185,14 +243,19 @@ RigidBodyLoadControl::computeJacobian()
   // bypassing the tagged-block dispatch.
   const auto & lm_var = _sys.getVariable(_tid, _lm_var_num);
   const auto & scalar_dofs = _var.dofIndices();
-  std::vector<dof_id_type> lm_dofs(N);
+  std::vector<dof_id_type> lm_dofs;
+  std::vector<std::size_t> accessible_ks;
   for (const auto k : index_range(_node_ids))
-    lm_dofs[k] = _mesh.getMesh().node_ref(_node_ids[k]).dof_number(
-        _sys.number(), _lm_var_num, /*comp=*/0);
-
-  DenseMatrix<Real> ke_transpose(N, 1);
-  for (const auto k : index_range(_node_ids))
-    if (gap_branch[k])
-      ke_transpose(k, 0) = -_c * n_dot_dir[k];
-  addJacobian(_assembly, ke_transpose, lm_dofs, scalar_dofs, lm_var.scalingFactor());
+    if (nodeIsAccessible(k))
+      accessible_ks.push_back(k);
+  lm_dofs.reserve(accessible_ks.size());
+  for (const auto k : accessible_ks)
+    lm_dofs.push_back(_mesh.getMesh().node_ref(_node_ids[k]).dof_number(
+        _sys.number(), _lm_var_num, /*comp=*/0));
+  DenseMatrix<Real> ke_transpose(accessible_ks.size(), 1);
+  for (const auto i : index_range(accessible_ks))
+    if (gap_branch[accessible_ks[i]])
+      ke_transpose(i, 0) = -_c * n_dot_dir[accessible_ks[i]];
+  if (!lm_dofs.empty())
+    addJacobian(_assembly, ke_transpose, lm_dofs, scalar_dofs, lm_var.scalingFactor());
 }

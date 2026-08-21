@@ -51,6 +51,7 @@
     type = RigidBodyContactSparsity
     lm_variable = normal_lm
     displacements = 'disp_x disp_y disp_z'
+    boundary = 100
   []
   [sphere]
     type = SphereContactor
@@ -413,6 +414,14 @@
   [cumulative_nl]
     type = CumulativeValuePostprocessor
     postprocessor = num_nl
+  []
+  [force]
+    type = FunctionValuePostprocessor
+    function = applied_force
+  []
+  [depth]
+    type = ScalarVariable
+    variable = indenter_y
   []
 []
 

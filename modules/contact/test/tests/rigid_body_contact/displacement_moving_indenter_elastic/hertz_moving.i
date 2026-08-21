@@ -47,6 +47,7 @@
     type = RigidBodyContactSparsity
     lm_variable = normal_lm
     displacements = 'disp_x disp_y'
+    boundary = 100
   []
   [sphere]
     type = SphereContactor

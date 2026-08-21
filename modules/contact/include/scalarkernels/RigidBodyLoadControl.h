@@ -50,6 +50,19 @@ private:
   /// Deformed position of the k-th LM node (undeformed node + displacement).
   Point deformedNode(std::size_t k) const;
 
+  /// Deformed position for a specific Node pointer, using compressed-index
+  /// displacement values (index into the ordered subset of `_node_ids`
+  /// nodes that were accessible and semi-local at reinit time).
+  Point deformedNodePoint(const Node & node, std::size_t compressed) const;
+
+  /// True when node `_node_ids[k]` is accessible on this rank — either
+  /// locally owned or ghosted.  ScalarKernel::computeResidual /
+  /// computeJacobian run only on the rank that owns the scalar DoF and
+  /// see the full boundary node list, but with an unusual partition a
+  /// specific node may still be off-rank; skip those defensively rather
+  /// than dereferencing a null Node pointer.
+  bool nodeIsAccessible(std::size_t k) const;
+
   const Function & _force;
   const LevelSetContactor & _contactor;
   const NodalArea & _nodal_area;

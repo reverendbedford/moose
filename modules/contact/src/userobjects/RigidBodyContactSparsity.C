@@ -17,6 +17,7 @@
 #include "libmesh/dof_map.h"
 #include "libmesh/elem.h"
 #include "libmesh/mesh_base.h"
+#include "libmesh/boundary_info.h"
 
 registerMooseObject("ContactApp", RigidBodyContactSparsity);
 
@@ -33,6 +34,30 @@ RigidBodyContactSparsity::validParams()
                                         "lower-d block (same as the NCP kernel's `variable`).");
   params.addRequiredParam<std::vector<VariableName>>(
       "displacements", "Displacement variables in order (x, y[, z]).");
+  params.addRequiredParam<std::vector<BoundaryName>>(
+      "boundary",
+      "Contact sideset id(s) — same as the RigidBodyNodalNCPKernel/"
+      "RigidBodyLoadControl `boundary`.  Used to mark boundary elements as "
+      "semi-local on every rank so the scalar-owning rank of "
+      "RigidBodyLoadControl can read `_lambda[k]` and `_disp[k]` for every "
+      "node on the contact patch in parallel.");
+  // Parallel: register GhostEverything so every rank sees every element
+  // (owned + ghosted).  Two reasons:
+  //   1. RigidBodyLoadControl is a NodalScalarKernel — MOOSE only calls its
+  //      residual/Jacobian on the rank that owns the scalar DoF (the last
+  //      MPI rank), so that rank must have algebraic access to every LM
+  //      DoF on the contact sideset.  GhostBoundary only ghosts higher-d
+  //      elements incident to the boundary; the LM DoFs live on the
+  //      lower-d subdomain and would still be missing.
+  //   2. Our own augment_sparsity_pattern (below) iterates the lower-d
+  //      block on each rank and adds LM<->disp coupling pairs; that
+  //      iteration must see every lower-d element whose sparsity
+  //      contribution touches a locally-owned row.
+  // Rigid-body contact meshes are typically small (a few hundred lower-d
+  // faces even in 3D), so full ghosting is cheap and bulletproof.
+  params.addRelationshipManager(
+      "GhostEverything",
+      Moose::RelationshipManagerType::GEOMETRIC | Moose::RelationshipManagerType::ALGEBRAIC);
   // Attach in the constructor, which runs before es().init() where the
   // sparsity pattern is computed.  execute_on defaults to NONE (nothing to
   // do at runtime).
@@ -58,6 +83,32 @@ RigidBodyContactSparsity::RigidBodyContactSparsity(const InputParameters & param
 }
 
 void
+RigidBodyContactSparsity::initialSetup()
+{
+  // Force every rank to treat all elements on the contact boundary as
+  // ghosted (whether it owns them or not).  MooseMesh::isSemiLocal(node)
+  // returns true only for nodes on active_local_elements + explicitly
+  // ghosted elements — GhostEverything's algebraic ghost is not enough to
+  // populate that list.  Without this step, on a rank that owns no
+  // boundary-adjacent element (e.g. the scalar-owning rank in
+  // load-controlled contact) `NodalScalarKernel::reinit` skips every
+  // boundary node and `_lambda[k]` / `_disp[k]` are empty vectors,
+  // segfaulting on access.
+  auto & mesh = _fe_problem.mesh().getMesh();
+  const auto & binfo = mesh.get_boundary_info();
+  const auto boundary_ids =
+      _fe_problem.mesh().getBoundaryIDs(getParam<std::vector<BoundaryName>>("boundary"));
+  const std::set<BoundaryID> bset(boundary_ids.begin(), boundary_ids.end());
+  for (const auto & t : binfo.build_side_list())
+  {
+    const auto elem_id = std::get<0>(t);
+    const auto bc_id = std::get<2>(t);
+    if (bset.count(bc_id))
+      _fe_problem.addGhostedElem(elem_id);
+  }
+}
+
+void
 RigidBodyContactSparsity::augment_sparsity_pattern(
     libMesh::SparsityPattern::Graph & sparsity,
     std::vector<libMesh::dof_id_type> & n_nz,
@@ -75,12 +126,27 @@ RigidBodyContactSparsity::augment_sparsity_pattern(
   const auto & lm_var = nl.getVariable(0, _lm_var_num);
   const std::set<SubdomainID> & lm_blocks = lm_var.blockIDs();
 
-  // For each lower-d block element, gather ALL DoFs from LM + every disp
-  // component (from BOTH the lower-d element itself AND its higher-d
-  // parent).  Mark every pair as coupled.  This closes the preallocation
-  // gap where MOOSE's LowerDIntegratedBC assembles cross-node
-  // (LM,disp), (disp,LM), and (disp_i_on_primary, disp_j_on_lower)
-  // blocks that libMesh's default element-based sparsity misses.
+  // For each lower-d block element visible to this rank (locally owned OR
+  // ghosted), gather ALL DoFs from LM + every disp component (from BOTH
+  // the lower-d element itself AND its higher-d parent).  Mark every pair
+  // as coupled.  This closes the preallocation gap where MOOSE's
+  // LowerDIntegratedBC assembles cross-node (LM,disp), (disp,LM), and
+  // (disp_i_on_primary, disp_j_on_lower) blocks that libMesh's default
+  // element-based sparsity misses.
+  //
+  // Parallel note: iterating `active_element_ptr_range` (not
+  // `active_local_element_ptr_range`) is required in parallel.  The
+  // AugmentSparsityPattern hook runs AFTER `Build::parallel_sync` on the
+  // DofMap, so we can only write LOCAL rows of `sparsity` — non-local
+  // rows added here would be dropped.  For a lower-d element straddling a
+  // partition boundary, the rank owning the LM DoF at one endpoint may
+  // NOT own the lower-d element (or the disp DoF at the other endpoint).
+  // Iterating including ghosts lets each rank independently see every
+  // lower-d element touching its owned DoFs, and the per-row filter below
+  // (r >= first_dof_on_proc, r < end_dof_on_proc) discards writes that
+  // aren't local — so the owning rank picks them up.  Reaches ghosted
+  // elements because MOOSE registers `GhostLowerDElems` on any mesh with
+  // a lower-d block.
   std::vector<libMesh::dof_id_type> all_dofs;
   std::vector<libMesh::dof_id_type> di;
 
@@ -97,7 +163,7 @@ RigidBodyContactSparsity::augment_sparsity_pattern(
     all_dofs.insert(all_dofs.end(), di.begin(), di.end());
   };
 
-  for (const auto * elem : mesh.getMesh().active_local_element_ptr_range())
+  for (const auto * elem : mesh.getMesh().active_element_ptr_range())
   {
     if (!lm_blocks.count(elem->subdomain_id()))
       continue;

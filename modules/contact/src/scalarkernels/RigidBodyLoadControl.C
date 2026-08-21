@@ -69,6 +69,7 @@ RigidBodyLoadControl::RigidBodyLoadControl(const InputParameters & parameters)
     _contactor(getUserObject<LevelSetContactor>("contactor")),
     _nodal_area(getUserObject<NodalArea>("nodal_area")),
     _direction(getParam<Point>("direction")),
+    _axis(libMesh::invalid_uint),
     _c(getParam<Real>("c")),
     _lm_var_num(coupled("lm_variable")),
     _lambda(coupledValue("lm_variable")),
@@ -84,27 +85,26 @@ RigidBodyLoadControl::RigidBodyLoadControl(const InputParameters & parameters)
   // Verify the direction is aligned with a Cartesian axis, and that the
   // contactor's translation input on that axis is the scalar we are the
   // kernel of.  Anything else means the user's plumbing is inconsistent.
-  unsigned int axis = libMesh::invalid_uint;
   for (const auto k : {0u, 1u, 2u})
     if (std::abs(std::abs(_direction(k)) - 1.0) < TOLERANCE)
-      axis = k;
-  if (axis == libMesh::invalid_uint)
+      _axis = k;
+  if (_axis == libMesh::invalid_uint)
     paramError("direction",
                "Must be aligned with a Cartesian axis (a signed unit vector on x, y, or z).");
-  const unsigned int contactor_scalar = _contactor.translationScalarNumber(axis);
+  const unsigned int contactor_scalar = _contactor.translationScalarNumber(_axis);
   if (contactor_scalar == libMesh::invalid_uint)
     paramError("contactor",
                "The contactor's translation on axis ",
-               axis,
+               _axis,
                " must be driven by a Scalar variable (via disp_",
-               std::array<const char *, 3>{"x", "y", "z"}[axis],
+               std::array<const char *, 3>{"x", "y", "z"}[_axis],
                "_scalar) for this kernel to close the load-control loop.");
   if (contactor_scalar != _var.number())
     paramError("variable",
                "This kernel's `variable` (number ",
                _var.number(),
                ") must match the Scalar variable driving the contactor's axis-",
-               axis,
+               _axis,
                " translation (number ",
                contactor_scalar,
                ").");
@@ -189,7 +189,18 @@ RigidBodyLoadControl::computeJacobian()
   // the NCP each node is on, for the transpose block).  Same
   // single-rank-with-ghosted-nodes assumption as computeResidual.
   const auto N = _node_ids.size();
+  // `n_dot_dir[k]` = n_k . direction, used for (scalar_row, lambda_col):
+  //   dR_s/dlambda_j = -w_j * (n_j . direction), which is a function of
+  //   the USER-supplied load direction and can carry either sign.
+  // `n_dot_axis[k]` = n_k . axis_hat = the k-th normal component along
+  //   the positive Cartesian axis of the contactor's translation, used
+  //   for (lambda_row, scalar_col): dR_lambda/ds = -c * (n_j . axis_hat).
+  //   The contactor's translation is s * axis_hat regardless of the sign
+  //   of `direction`, so this uses axis_hat and not direction — mixing
+  //   them up (an older bug) flips the Kls sign when the user picks a
+  //   negative-axis load direction and Newton then diverges.
   std::vector<Real> n_dot_dir(N, 0.0);
+  std::vector<Real> n_dot_axis(N, 0.0);
   std::vector<bool> gap_branch(N, false);
   // Compressed indexing again (see computeResidual): _lambda[j], _disp[j]
   // where j is the running count over accessible+semi-local nodes.
@@ -201,6 +212,7 @@ RigidBodyLoadControl::computeJacobian()
     const Node * node = _mesh.getMesh().node_ptr(_node_ids[k]);
     const auto q = _contactor.queryAt(deformedNodePoint(*node, j));
     n_dot_dir[k] = q.normal * _direction;
+    n_dot_axis[k] = q.normal(_axis);
     gap_branch[k] = _c * q.gap < _lambda[j];
     ++j;
   }
@@ -231,8 +243,15 @@ RigidBodyLoadControl::computeJacobian()
   assignTaggedLocalMatrix();
 
   // (lambda_row, scalar_col): the transpose block.  For each LM node on the
-  // gap branch of min(lambda, c*g), R_lambda = c * g_LS(x - s*direction), so
-  // dR_lambda / ds = c * grad(g_LS) . (-direction) = -c * (n . direction).
+  // gap branch of min(lambda, c*g), R_lambda = c * g_LS(x_deformed - t(s)).
+  // LevelSetContactor implements the translation as t(s) = s * axis_hat
+  // (via disp_[axis]_scalar), where axis_hat is the POSITIVE Cartesian
+  // unit vector on the relevant axis.  Hence
+  //   dR_lambda / ds = c * grad(g_LS) . (-dt/ds)
+  //                  = c * n . (-axis_hat)
+  //                  = -c * (n . axis_hat).
+  // The user-supplied `direction` is not used here — it only enters the
+  // (scalar_row, lambda_col) block above.
   // Lambda-branch nodes have R_lambda = lambda (independent of s).
   //
   // MOOSE's ScalarKernel dispatch (`addJacobianOffDiagScalar`) only fills
@@ -255,7 +274,7 @@ RigidBodyLoadControl::computeJacobian()
   DenseMatrix<Real> ke_transpose(accessible_ks.size(), 1);
   for (const auto i : index_range(accessible_ks))
     if (gap_branch[accessible_ks[i]])
-      ke_transpose(i, 0) = -_c * n_dot_dir[accessible_ks[i]];
+      ke_transpose(i, 0) = -_c * n_dot_axis[accessible_ks[i]];
   if (!lm_dofs.empty())
     addJacobian(_assembly, ke_transpose, lm_dofs, scalar_dofs, lm_var.scalingFactor());
 }

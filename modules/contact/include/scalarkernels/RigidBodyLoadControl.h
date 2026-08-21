@@ -31,11 +31,24 @@ class NodalArea;
  *
  * The Jacobian assembles:
  *  * (scalar_row, lambda_col) : -w_j * (n_j . direction)   — direct.
- *  * (lambda_row, scalar_col) : -c * (n_j . direction) on gap-branch nodes,
+ *  * (lambda_row, scalar_col) : -c * (n_j . axis_hat) on gap-branch nodes,
  *    0 elsewhere — transpose block that MOOSE's NodalKernel framework can't
  *    fill (NodalKernel has no scalar off-diagonal hook), so this kernel
  *    fills it directly.  The `c` parameter MUST match the companion
  *    RigidBodyNodalNCPKernel's `c` for the Jacobian to be consistent.
+ *
+ *    `axis_hat` is the POSITIVE Cartesian unit vector along the axis of
+ *    the contactor's translation (i.e., the disp_[xyz]_scalar the
+ *    contactor is configured with), NOT the user-supplied `direction`
+ *    (which may be negative-axis).  The two agree only when
+ *    `direction` is a positive-axis unit vector; when it is negative
+ *    (e.g. `direction = '0 -1 0'` for a load that acts along -y), the
+ *    sign of dR_lambda/ds still comes from the ACTUAL translation
+ *    vector, which LevelSetContactor implements as s * axis_hat (always
+ *    positive-oriented).  Using `n . direction` here — as an older
+ *    version of this class did — produced a wrong Kls sign whenever the
+ *    user supplied a negative-axis direction and made Newton fail on
+ *    load-control setups where the contact geometry required it.
  */
 class RigidBodyLoadControl : public NodalScalarKernel
 {
@@ -67,6 +80,14 @@ private:
   const LevelSetContactor & _contactor;
   const NodalArea & _nodal_area;
   Point _direction;
+  /// Cartesian axis index (0=x, 1=y, 2=z) that the contactor's translation
+  /// scalar drives.  Determined from `_direction` in the ctor (which
+  /// enforces `_direction` to be aligned with a Cartesian axis).  The
+  /// contactor translates by `s * axis_hat` where `axis_hat` is the
+  /// positive unit vector for this axis, independent of the sign of
+  /// `_direction` — that positive-axis translation is what enters
+  /// dR_lambda/ds in computeJacobian().
+  unsigned int _axis;
   const Real _c;
 
   const unsigned int _lm_var_num;

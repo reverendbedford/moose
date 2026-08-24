@@ -425,6 +425,26 @@
     optimal_iterations = 8
     iteration_window = 2
   []
+
+  # Predictor: warm-start the (u_contact, lambda, s) subproblem before the
+  # full monolithic Newton fires.  Confirmed to reduce iteration counts
+  # substantially on elastic force- and displacement-controlled tests
+  # (see `predictor/tests`).  On THIS problem (finite-strain J2 plasticity
+  # + first-step engagement with initial_condition = 0) the sub-solve
+  # inherits the same overshoot / limit-cycle behavior plain Newton
+  # exhibits and does not currently rescue convergence -- captured here so
+  # a future improvement to the sub-solve (SSLS bounds inside, adaptive
+  # step damping, smarter clip-lambda) does not require re-plumbing this
+  # input.
+  [Predictor]
+    type = RigidBodyContactPredictor
+    boundary = mat_top
+    lm_variable = normal_lm
+    displacements = 'disp_x disp_y disp_z'
+    scalar_variable = indenter_y
+    k_hops = 3
+    sub_max_iter = 20
+  []
 []
 
 [Postprocessors]

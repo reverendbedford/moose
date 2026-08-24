@@ -80,6 +80,19 @@ private:
   const LevelSetContactor & _contactor;
   const NodalArea & _nodal_area;
   Point _direction;
+  /// Effective contact stiffness (typically the deformable body's Young's
+  /// modulus) used to fabricate a nonzero (scalar_row, scalar_col) Jacobian
+  /// entry.  The exact `dR_s/ds` is zero in this formulation (F(t) does not
+  /// depend on s, and the reaction depends on s only through Kls · Kpp^-1 ·
+  /// Ksl, which we don't have in closed form here), so with `Kss=0` the
+  /// linear solve relies on PETSc pivot shifts and Newton overshoots
+  /// dramatically on flat contact patches where the true Schur-complement
+  /// Kss is O(K_material · A_contact).  This is a JACOBIAN-ONLY
+  /// modification: the residual is unchanged, so the physical fixed point
+  /// (R_s = 0) is unchanged — only the intermediate Newton iterates
+  /// differ.  Set to 0 (default) to preserve the original formulation
+  /// exactly.
+  const Real _kss_stiffness;
   /// Cartesian axis index (0=x, 1=y, 2=z) that the contactor's translation
   /// scalar drives.  Determined from `_direction` in the ctor (which
   /// enforces `_direction` to be aligned with a Cartesian axis).  The

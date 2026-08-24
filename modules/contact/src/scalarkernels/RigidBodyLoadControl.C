@@ -60,6 +60,18 @@ RigidBodyLoadControl::validParams()
       "c > 0",
       "NCP scaling on the gap.  MUST match the `c` used by the companion "
       "RigidBodyNodalNCPKernel so the (LM_row, scalar_col) transpose Jacobian block is correct.");
+  params.addRangeCheckedParam<Real>(
+      "kss_stiffness",
+      0.0,
+      "kss_stiffness >= 0",
+      "Effective contact stiffness used to fabricate a nonzero (scalar_row, "
+      "scalar_col) Jacobian entry as `Kss = kss_stiffness * total_nodal_area "
+      "* sign(direction . axis_hat)`.  This is a JACOBIAN-ONLY preconditioning "
+      "modification (residual is unchanged, so the physical fixed point R_s = 0 "
+      "is unchanged) that keeps Newton from overshooting when the true "
+      "Schur-complement Kss is O(K_material * A_contact) but the assembled "
+      "block is zero.  Set to 0 (default) to disable.  A sensible value is "
+      "the deformable body's Young's modulus.");
   return params;
 }
 
@@ -71,6 +83,7 @@ RigidBodyLoadControl::RigidBodyLoadControl(const InputParameters & parameters)
     _direction(getParam<Point>("direction")),
     _axis(libMesh::invalid_uint),
     _c(getParam<Real>("c")),
+    _kss_stiffness(getParam<Real>("kss_stiffness")),
     _lm_var_num(coupled("lm_variable")),
     _lambda(coupledValue("lm_variable")),
     _ndisp(coupledComponents("displacements")),
@@ -220,11 +233,38 @@ RigidBodyLoadControl::computeJacobian()
   // (scalar_row, scalar_col): dR_s/ds = 0 in this formulation (F(t) does
   // not depend on s and the reaction depends on s only indirectly through
   // the geometric term dn/ds, which is a hessian order term we drop).
-  // PETSc's sparsity still needs the entry, so assemble an explicit zero.
+  // PETSc's sparsity still needs the entry, so assemble an explicit zero
+  // — plus an optional preconditioning shift (see `kss_stiffness` param
+  // docstring).  The physically-motivated shift is
+  //   Kss_precond = kss_stiffness * total_nodal_area * sign(direction . axis_hat)
+  // The magnitude scales with total contact-patch area (a proxy for how
+  // stiff the material's response is over the loaded region), and the
+  // sign matches the true dR_s/ds sign: +1 when direction and axis_hat
+  // agree (pushing s up increases reaction) and -1 when they oppose
+  // (pushing s up decreases reaction).  Summing over ALL accessible
+  // boundary nodes — not just the currently-active-contact subset —
+  // keeps the shift constant across Newton iterations so gap/lambda-branch
+  // flipping in the min-NCP does not churn the effective diagonal.
+  Real kss = 0.0;
+  if (_kss_stiffness > 0.0)
+  {
+    Real total_area = 0.0;
+    for (const auto k : index_range(_node_ids))
+    {
+      if (!nodeIsAccessible(k))
+        continue;
+      const Node * node = _mesh.getMesh().node_ptr(_node_ids[k]);
+      total_area += _nodal_area.nodalArea(node);
+    }
+    // _direction(_axis) is +/- 1 exactly (direction was normalized and
+    // validated to be axis-aligned in the ctor).
+    kss = _kss_stiffness * total_area * _direction(_axis);
+  }
   prepareMatrixTag(_assembly, _var.number(), _var.number());
   for (const auto i : make_range(_local_ke.m()))
     for (const auto j : make_range(_local_ke.n()))
       _local_ke(i, j) = 0.0;
+  _local_ke(0, 0) = kss;
   assignTaggedLocalMatrix();
 
   // (scalar_row, lambda_col): dR_s / dlambda_j = -w_j * (n_j . direction).

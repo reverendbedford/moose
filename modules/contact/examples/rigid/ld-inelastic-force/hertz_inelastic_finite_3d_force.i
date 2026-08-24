@@ -393,6 +393,22 @@
     optimal_iterations = 8
     iteration_window = 2
   []
+
+  # Warm-start each time step by resolving the (u_contact, lambda, s)
+  # subproblem before the full monolithic Newton fires.  Cuts cumulative
+  # nonlinear iterations roughly 3-4x on this problem (219 -> 59 at
+  # t=1) and halves wall time.  Without the predictor plain Newton
+  # takes ~10 outer iters on the first-contact step; with it, ~2.
+  # See uzawa_npc_plan.md for the design.
+  [Predictor]
+    type = RigidBodyContactPredictor
+    boundary = 100
+    lm_variable = normal_lm
+    displacements = 'disp_x disp_y disp_z'
+    scalar_variable = indenter_y
+    k_hops = 3
+    sub_max_iter = 15
+  []
 []
 
 [Postprocessors]

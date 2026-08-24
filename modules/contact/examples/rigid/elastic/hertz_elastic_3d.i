@@ -324,6 +324,15 @@
   start_time = 0.0
   end_time   = 1.0
   dt         = 0.1
+
+  # NOTE on RigidBodyContactPredictor: the sibling ld-inelastic-force
+  # example enables this predictor to warm-start the coupled (u,
+  # lambda, s) system before the full Newton fires (3-4x iter
+  # reduction there).  It is deliberately NOT enabled here because the
+  # SNESVINEWTONSSLS + `semismooth` line search combo above already
+  # resolves the LM active set efficiently for displacement control
+  # -- the predictor's own sub-solve adds cost without changing outer
+  # iteration counts on this problem class.  See uzawa_npc_plan.md.
 []
 
 [Postprocessors]

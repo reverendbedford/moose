@@ -378,6 +378,17 @@
     optimal_iterations = 8
     iteration_window = 2
   []
+
+  # NOTE on RigidBodyContactPredictor: the sibling ld-inelastic-force
+  # example enables this predictor to warm-start the coupled (u,
+  # lambda, s) system before the full Newton fires (3-4x iter
+  # reduction there).  It is deliberately NOT enabled here because the
+  # SNESVINEWTONSSLS + `semismooth` line search combo above already
+  # resolves the LM active set efficiently for displacement control
+  # -- on this plastic problem the predictor's own sub-solve consumes
+  # more effort than it saves (measured: 47 -> 55 cumulative outer
+  # iters at t = 0.05, with more time-step cutbacks).  See
+  # uzawa_npc_plan.md.
 []
 
 [Postprocessors]

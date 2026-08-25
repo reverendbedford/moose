@@ -63,10 +63,19 @@ UzawaTransient::validParams()
       "itself fails, the executioner immediately propagates the failure so "
       "IterationAdaptiveDT cuts back.");
   params.addParam<bool>(
-      "verbose",
+      "outer_verbose",
+      true,
+      "Print one line per Uzawa outer iter to the console: `Uzawa outer iter "
+      "N: s = <value>, |R_s| = <value>`.  This is the load-controlled "
+      "solve's primary progress signal; on by default.");
+  params.addParam<bool>(
+      "inner_verbose",
       false,
-      "Print per-outer-iter (s, |R_s|) history to the console.  Useful for "
-      "diagnosing convergence issues; noisy for long production runs.");
+      "Also print the inner primal SNES / KSP monitor output ("
+      "`M Nonlinear |R|`, `M Linear |R|`) and MOOSE's `Convergence`-object "
+      "diagnostics.  Off by default -- the inner primal solve runs multiple "
+      "times per outer iter and its monitor lines drown out the outer "
+      "progress signal.  Enable when debugging primal convergence.");
   return params;
 }
 
@@ -78,7 +87,8 @@ UzawaTransient::UzawaTransient(const InputParameters & parameters)
     _outer_rel_tol(getParam<Real>("outer_rel_tol")),
     _max_step(getParam<Real>("max_step")),
     _damp_max_retries(getParam<unsigned int>("damp_max_retries")),
-    _verbose(getParam<bool>("verbose"))
+    _outer_verbose(getParam<bool>("outer_verbose")),
+    _inner_verbose(getParam<bool>("inner_verbose"))
 {
   // Construct the SolveObject inside the Executioner ctor so MooseObject's
   // "constructed via Factory" check sees `currentlyConstructing()` still
@@ -90,7 +100,8 @@ UzawaTransient::UzawaTransient(const InputParameters & parameters)
                                                     _outer_rel_tol,
                                                     _max_step,
                                                     _damp_max_retries,
-                                                    _verbose);
+                                                    _outer_verbose,
+                                                    _inner_verbose);
 }
 
 UzawaTransient::~UzawaTransient() = default;

@@ -34,7 +34,8 @@ public:
                    Real outer_rel_tol,
                    Real max_step,
                    unsigned int damp_max_retries,
-                   bool verbose);
+                   bool outer_verbose,
+                   bool inner_verbose);
 
   virtual bool solve() override;
 
@@ -54,11 +55,25 @@ private:
   const Real _outer_rel_tol;
   const Real _max_step;
   const unsigned int _damp_max_retries;
-  const bool _verbose;
+  const bool _outer_verbose;
+  const bool _inner_verbose;
 
   /// Read the current value of the load-control scalar variable
   /// (`variable` on `RigidBodyLoadControl`).
   Real readScalarValue() const;
   /// Overwrite the current value of the scalar variable and close.
   void writeScalarValue(Real new_value);
+
+  /// Cancel the SNES / KSP monitors on the primal SNES so its
+  /// per-iter `M Nonlinear |R|` / `M Linear |R|` output is silenced.
+  /// Called before each `_inner_solve->solve()` when
+  /// `_inner_verbose == false`.  MOOSE's `Convergence`-object
+  /// diagnostic (`default_nonlinear_convergencenl0: Converged ...`)
+  /// is orthogonally controlled by `Executioner/verbose` and is
+  /// silent under this class's default (Executioner verbose = false),
+  /// so no separate suppression is needed here.
+  void silenceInnerSolveMonitors();
+  /// Reinstall the SNES / KSP monitors from MOOSE's option database
+  /// (`SNESSetFromOptions` / `KSPSetFromOptions`) after the inner solve.
+  void restoreInnerSolveMonitors();
 };

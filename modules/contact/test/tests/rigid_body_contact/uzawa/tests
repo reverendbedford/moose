@@ -50,6 +50,24 @@
   # monitors from `PetscOutput::solveSetup` on every
   # `FEProblemBase::solve()` and there is no clean pre-iter-0 hook to
   # cancel them, so they are left alone.
+  # Displacement-control pass-through: with no `load_control_kernel`,
+  # UzawaTransient's outer loop is bypassed and the class behaves as
+  # a plain Transient wrapper.  Runs the standard 2D disp-controlled
+  # Hertz test through UzawaTransient and CSVDiffs against the
+  # baseline plain-Transient gold (bit-for-bit -- pass-through path
+  # adds one SolveObject::solve call on the stack and nothing else).
+  [hertz_moving_with_uzawa_passthrough]
+    type = 'CSVDiff'
+    input = '../displacement_moving_indenter_elastic/hertz_moving.i'
+    csvdiff = 'hertz_moving_csv.csv'
+    cli_args = 'Executioner/type=UzawaTransient Outputs/csv/file_base=hertz_moving_csv'
+    rel_err = 1e-8
+    max_parallel = 1
+    requirement = 'UzawaTransient shall pass through to plain Transient behavior when no '
+                  '`load_control_kernel` is supplied, so displacement-controlled inputs can be '
+                  'run under UzawaTransient without any per-solve overhead beyond a single '
+                  'extra SolveObject::solve call on the stack.'
+  []
   [output_default]
     type = 'RunApp'
     input = '../load_controlled_elastic_3d/hertz_load_3d.i'

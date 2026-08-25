@@ -21,8 +21,6 @@
 
 [GlobalParams]
   displacements = 'disp_x disp_y disp_z'
-  large_kinematics = true
-  stabilize_strain = true
 []
 
 [Mesh]
@@ -40,11 +38,9 @@
 
 [Variables]
   # Disp variables span both block 1 and the lower-d block so
-  # RigidContact's NCP kernel and BCs find them via block subset.  We
-  # skip `Physics/SolidMechanics/QuasiStatic` here because its default
-  # strain/stress materials conflict with the custom finite-strain +
-  # plasticity pipeline below; we write the disp kernels manually
-  # instead (see [Kernels]).
+  # RigidContact's NCP kernel and BCs find them via block subset.
+  # SolidMechanics/QuasiStatic below adds kernels + strain material +
+  # wrapping stress on block 1 only.
   [disp_x]
     block = '1 contact_lower'
   []
@@ -56,23 +52,13 @@
   []
 []
 
-[Kernels]
-  [sdx]
-    type = TotalLagrangianStressDivergence
-    variable = disp_x
-    component = 0
-    block = 1
-  []
-  [sdy]
-    type = TotalLagrangianStressDivergence
-    variable = disp_y
-    component = 1
-    block = 1
-  []
-  [sdz]
-    type = TotalLagrangianStressDivergence
-    variable = disp_z
-    component = 2
+[Physics/SolidMechanics/QuasiStatic]
+  [all]
+    strain = FINITE
+    add_variables = false
+    compatibility_mode = true          # auto-wraps user's `stress` via ComputeLagrangianWrappedStress
+    decomposition_method = EigenSolution  # -> kinematic_approximation = rashid_eigen on ComputeLagrangianStrain
+    volumetric_locking_correction = true  # -> stabilize_strain = true
     block = 1
   []
 []
@@ -216,20 +202,13 @@
     poissons_ratio = 0.25
     block = 1
   []
+  # `stress` is provided here; the Physics action auto-wraps it via
+  # ComputeLagrangianWrappedStress (compatibility_mode) and creates
+  # the ComputeLagrangianStrain material itself.
   [stress]
-    type = ComputeLagrangianWrappedStress
-    objective_rate = rashid
-    block = 1
-  []
-  [wrapped]
     type = ComputeMultiPlasticityStress
     plastic_models = j2
     ep_plastic_tolerance = 1e-9
-    block = 1
-  []
-  [strain]
-    type = ComputeLagrangianStrain
-    kinematic_approximation = rashid_eigen
     block = 1
   []
   [eff_plastic_strain]

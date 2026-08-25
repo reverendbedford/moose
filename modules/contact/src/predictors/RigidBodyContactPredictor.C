@@ -256,36 +256,34 @@ RigidBodyContactPredictor::apply(NumericVector<Number> & sln)
   // Save entry state so we can revert on sub-solve failure.
   auto entry_sln = sln.clone();
 
-  // MOOSE stores the "main" residual on `System::rhs` and the Jacobian
-  // on `ImplicitSystem::matrix`.  We reuse those as scratch storage —
-  // they are guaranteed to be allocated (DofMap is initialized), and
-  // the outer SNES rewrites them as part of its first Newton iter
-  // anyway, so borrowing them here is harmless.  The tag-based
-  // `_nl.getVector(residualVectorTag())` is NOT yet associated at
-  // predictor time (SetInitialSolution runs before the first SNES
-  // callback that would associate it).
-  // Create scratch storage for R and J.  Passing MOOSE's own tagged
-  // residual/matrix would seem natural, but their association is only
-  // valid inside the SNES callback -- reusing them here (before the
-  // outer SNES starts) leaves them empty even after
-  // `computeResidualAndJacobian` returns.  A fresh clone of the
-  // solution vector for the residual, plus MOOSE's already-allocated
-  // system matrix for the Jacobian (which is safe to reuse -- the
-  // outer SNES will rebuild it on its first iter anyway), works
-  // cleanly.
+  // MPI note: `sln` is the SYSTEM's owned-only solution vector.  When
+  // MOOSE's `computeResidual` machinery (below) reinits scalar
+  // variables, it calls `PetscVector::get()` on the current solution
+  // for the scalar's DoF indices -- and for a scalar owned by the
+  // last rank, non-owning ranks segfault because that DoF is not local
+  // in an owned-only vector.  Work on the system's GHOSTED
+  // `current_local_solution` throughout, so scalar reads see valid
+  // ghosted values on every rank.
   auto * nl_impl_sys = dynamic_cast<libMesh::NonlinearImplicitSystem *>(&_nl.system());
-  if (!nl_impl_sys || !nl_impl_sys->matrix)
+  if (!nl_impl_sys || !nl_impl_sys->matrix || !nl_impl_sys->current_local_solution)
   {
-    mooseWarning(name(), ": nonlinear implicit system matrix not allocated; skipping.");
+    mooseWarning(name(), ": nonlinear implicit system storage not allocated; skipping.");
     return;
   }
-  auto scratch_residual = sln.clone();
+
+  // Localize the owned sln into the ghosted work vector.
+  nl_impl_sys->update();
+  auto & working_sln = *nl_impl_sys->current_local_solution;
+
+  // Scratch residual: clone the ghosted vector so it has matching
+  // ghost layout for the tagged residual assembly.
+  auto scratch_residual = working_sln.clone();
   auto & residual = *scratch_residual;
   auto & jacobian = *nl_impl_sys->matrix;
 
   auto * const j_petsc = dynamic_cast<libMesh::PetscMatrix<Number> *>(&jacobian);
   auto * const r_petsc = dynamic_cast<libMesh::PetscVector<Number> *>(&residual);
-  auto * const sln_petsc = dynamic_cast<libMesh::PetscVector<Number> *>(&sln);
+  auto * const sln_petsc = dynamic_cast<libMesh::PetscVector<Number> *>(&working_sln);
   if (!j_petsc || !r_petsc || !sln_petsc)
   {
     mooseWarning(name(),
@@ -308,9 +306,9 @@ RigidBodyContactPredictor::apply(NumericVector<Number> & sln)
     // residual vector empty (its tag-association machinery relies on
     // state set up inside the outer SNES callback that has not yet
     // fired at predictor time).  Separate calls work.
-    _fe_problem.computeResidual(sln, residual, _nl.number());
+    _fe_problem.computeResidual(working_sln, residual, _nl.number());
     residual.close();
-    _fe_problem.computeJacobian(sln, jacobian, _nl.number());
+    _fe_problem.computeJacobian(working_sln, jacobian, _nl.number());
     jacobian.close();
 
     Vec r_sub;
@@ -379,9 +377,9 @@ RigidBodyContactPredictor::apply(NumericVector<Number> & sln)
     // region.  Ghosted LM values will be refreshed on the next
     // computeResidualAndJacobian call via setSolution.
     for (const auto d : _lm_dofs)
-      if (sln(d) < 0.0)
-        sln.set(d, 0.0);
-    sln.close();
+      if (working_sln(d) < 0.0)
+        working_sln.set(d, 0.0);
+    working_sln.close();
 
     LibmeshPetscCallA(_fe_problem.mesh().comm().get(), VecDestroy(&dx));
     LibmeshPetscCallA(_fe_problem.mesh().comm().get(), MatDestroy(&j_sub));
@@ -397,5 +395,13 @@ RigidBodyContactPredictor::apply(NumericVector<Number> & sln)
     sln.close();
   }
   else
+  {
+    // Copy the ghosted working solution back into the owned sln.  Only
+    // owned entries are valid; ghosts are recomputed on the next
+    // sys.update() the outer SNES will do.  Assignment copies all
+    // entries but the framework only reads the owned range from sln.
+    sln = working_sln;
+    sln.close();
     _console << name() << ": sub-solve converged; state warm-started" << std::endl;
+  }
 }

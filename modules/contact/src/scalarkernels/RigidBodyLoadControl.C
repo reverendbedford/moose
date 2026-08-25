@@ -184,6 +184,18 @@ RigidBodyLoadControl::setMode(Mode m, Real s_pin)
   _s_pin = s_pin;
 }
 
+Real
+RigidBodyLoadControl::currentReactionMinusF() const
+{
+  // Sum reduction across all ranks: the value was populated only on
+  // the scalar-owning rank (in computeResidual); other ranks
+  // contribute 0.  Result is the correct scalar residual on every
+  // rank.
+  Real reduced = _cached_reaction_minus_F;
+  _communicator.sum(reduced);
+  return reduced;
+}
+
 void
 RigidBodyLoadControl::computeResidual()
 {

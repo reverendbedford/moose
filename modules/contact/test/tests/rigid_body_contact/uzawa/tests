@@ -31,4 +31,31 @@
                   'residual tolerance.  This certifies that the outer 1D scalar Newton and the '
                   'inner primal SSLS produce a physically-consistent (u, lambda, s) state.'
   []
+  # Parallel MPI regression: the same 3D force-controlled Uzawa run,
+  # this time under mpiexec -n 2.  This locks in a fix for a bug where
+  # `RigidBodyLoadControl::_cached_reaction_minus_F` was populated only
+  # on the scalar-owning rank (the last MPI rank -- MOOSE calls
+  # `computeResidual` only there for ScalarKernels), so the outer
+  # `UzawaSolveObject` on rank 0 read a stale 0 and the outer loop
+  # "converged" in 1 iter with a wrong state.  The accessor now does
+  # an MPI sum reduction across ranks so callers on any rank see the
+  # correct value.  Without the fix this test hangs (outer loop
+  # thinks R_s = 0 -> exits after 1 iter -> next timestep starts from
+  # wrong state -> primal solve diverges -> IterationAdaptiveDT cuts
+  # back forever).
+  [hertz_load_3d_with_uzawa_mpi]
+    type = 'CSVDiff'
+    input = '../load_controlled_elastic_3d/hertz_load_3d.i'
+    csvdiff = 'hertz_load_3d_uzawa_csv.csv'
+    cli_args = 'Outputs/file_base=hertz_load_3d_uzawa_csv Executioner/end_time=0.05 Executioner/type=UzawaTransient Executioner/load_control_kernel=load_control Executioner/outer_max_iter=30 Executioner/max_step=1e-3 Executioner/outer_abs_tol=1 Executioner/outer_rel_tol=1e-3 ScalarKernels/load_control/kss_stiffness=1e6'
+    rel_err = 1e-4
+    prereq = 'hertz_load_3d_with_uzawa'
+    min_parallel = 2
+    max_parallel = 2
+    heavy = true
+    requirement = 'UzawaTransient shall converge under MPI to the same physical fixed point '
+                  'as the single-rank run, exercising the MPI reduction on '
+                  'RigidBodyLoadControl.currentReactionMinusF (the scalar residual is populated '
+                  'only on the rank owning the scalar DoF; other ranks must not read a stale 0).'
+  []
 []

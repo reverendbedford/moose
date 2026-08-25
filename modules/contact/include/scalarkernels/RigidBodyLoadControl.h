@@ -75,7 +75,14 @@ public:
   /// value written to `_local_re` differs between modes).  Used by
   /// `UzawaTransient` to read `R_s` at a converged primal solve without
   /// forcing a second residual assembly.
-  Real currentReactionMinusF() const { return _cached_reaction_minus_F; }
+  ///
+  /// Parallel-safe: MOOSE calls `computeResidual` only on the rank that
+  /// owns the scalar DoF, so `_cached_reaction_minus_F` is populated on
+  /// that one rank and remains at its initialized 0 elsewhere.  The
+  /// accessor does an MPI sum reduction so callers on any rank get the
+  /// correct value (non-owning contributions are 0, so sum = owning
+  /// rank's value).
+  Real currentReactionMinusF() const;
 
   /// Runtime mutator used by `UzawaTransient` to flip the residual /
   /// Jacobian form between primal solves and the R_s read-back.  The

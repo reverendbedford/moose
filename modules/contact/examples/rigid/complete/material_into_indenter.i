@@ -5,9 +5,9 @@
 # deformable body is now finite-strain J2 plasticity (linear hardening) and
 # the load is ramped further to activate a large plastic zone.
 #
-# Contact stack: analytic level-set (SurfaceMeshContactor + RigidBodyNodalNCPKernel
-# + RigidBodyNormalMechanicalContact).  Per-node min-NCP, no mortar, no AD,
-# no dual basis.
+# Contact stack: analytic level-set via `[RigidContact]` action.  Setting
+# `force = ...` activates the load-control extensions.  Uses
+# `SurfaceMeshContactor` from an STL geometry (unit sphere scaled).
 #
 # Constitutive stack (new-Lagrangian pipeline with consistent algorithmic
 # tangent):
@@ -21,12 +21,7 @@
 #
 # Solver: this example uses `UzawaTransient`, which splits the coupled
 # (u, lambda, s) system into an outer 1D Newton on `s` wrapping an
-# inner SSLS primal solve on (u, lambda).  Plain `Transient` + plain
-# Newton limit-cycles on this problem regardless of `kss_stiffness`,
-# `RigidBodyContactPredictor`, or IC warm-up because `dR_s/ds` is
-# structurally zero and no fixed preconditioner reproduces the true
-# Schur-complement stiffness across the plastic load path.  See
-# `uzawa_solver_plan.md` for the design.
+# inner primal solve on (u, lambda).  See `uzawa_solver_plan.md`.
 
 [GlobalParams]
   displacements = 'disp_x disp_y disp_z'
@@ -44,34 +39,48 @@
     input = file
     block = 1
   []
-  [contact_lower]
-    type = LowerDBlockFromSidesetGenerator
-    input = drop_rigid_indenter
-    sidesets = 'mat_top'
-    new_block_id = 10001
-    new_block_name = contact_lower
-  []
   allow_renumbering = false
 []
 
-[UserObjects]
-  [contact_sparsity]
-    type = RigidBodyContactSparsity
-    lm_variable = normal_lm
-    displacements = 'disp_x disp_y disp_z'
-    boundary = mat_top
+[Variables]
+  [disp_x]
+    block = '1000 contact_lower'
   []
+  [disp_y]
+    block = '1000 contact_lower'
+  []
+  [disp_z]
+    block = '1000 contact_lower'
+  []
+[]
+
+[Kernels]
+  [sdx]
+    type = TotalLagrangianStressDivergence
+    variable = disp_x
+    component = 0
+    block = 1000
+  []
+  [sdy]
+    type = TotalLagrangianStressDivergence
+    variable = disp_y
+    component = 1
+    block = 1000
+  []
+  [sdz]
+    type = TotalLagrangianStressDivergence
+    variable = disp_z
+    component = 2
+    block = 1000
+  []
+[]
+
+[UserObjects]
   [sphere]
     type = SurfaceMeshContactor
     file = unit_sphere.stl
     scale = 2.0
     disp_y_scalar = indenter_y
-  []
-  [nodal_area]
-    type = NodalArea
-    boundary = mat_top
-    variable = nodal_area
-    execute_on = 'INITIAL LINEAR'
   []
   [yield_strength]
     type = SolidMechanicsHardeningPowerRule
@@ -87,36 +96,29 @@
   []
 []
 
-[Variables]
-  [disp_x]
-    block = '1000 contact_lower'
-  []
-  [disp_y]
-    block = '1000 contact_lower'
-  []
-  [disp_z]
-    block = '1000 contact_lower'
-  []
-  [normal_lm]
-    block = contact_lower
-  []
-  [indenter_y]
-    family = SCALAR
-    order = FIRST
-    # Sphere STL (radius = 2 after scale) with no translation puts the
-    # sphere bottom at y = -2 in the undeformed frame, coincident with
-    # mat_top.  Starting at s = 0 means zero gap and zero penetration at
-    # t = 0 (no reaction, R_s = -F(0) = 0).  Load-control then drives s
-    # negative (sphere moves down into the material) as F(t) ramps up.
-    initial_condition = 0
+[RigidContact]
+  [top]
+    contactor = sphere
+    boundary  = mat_top
+    displacements = 'disp_x disp_y disp_z'
+    lm_variable_name   = normal_lm
+    lower_d_block_name = contact_lower
+    # Plain-Newton inner solve -- no SSLS + bounds needed.
+    enforce_bounds = false
+    # Force-control extensions:
+    force          = applied_force
+    load_direction = '0 -1 0'
+    scalar_variable_name = indenter_y
+    nodal_area_variable_name = nodal_area
+    # `kss_stiffness` acts as UzawaTransient's outer scalar-Newton
+    # dR_s/ds approximation.  1e6 is a good compromise between the
+    # elastic Hertz tangent (~1e7 at first contact) and the much softer
+    # plastic response later in the ramp.
+    kss_stiffness = 1e6
   []
 []
 
 [AuxVariables]
-  [nodal_area]
-    family = LAGRANGE
-    order = FIRST
-  []
   [plastic_strain_mag]
     order = CONSTANT
     family = MONOMIAL
@@ -218,62 +220,6 @@
   []
 []
 
-
-[Kernels]
-  [sdx]
-    type = TotalLagrangianStressDivergence
-    variable = disp_x
-    component = 0
-    block = 1000
-  []
-  [sdy]
-    type = TotalLagrangianStressDivergence
-    variable = disp_y
-    component = 1
-    block = 1000
-  []
-  [sdz]
-    type = TotalLagrangianStressDivergence
-    variable = disp_z
-    component = 2
-    block = 1000
-  []
-[]
-
-[NodalKernels]
-  [ncp]
-    type = RigidBodyNodalNCPKernel
-    variable = normal_lm
-    contactor = sphere
-    displacements = 'disp_x disp_y disp_z'
-    block = contact_lower
-    c = 1.0
-  []
-[]
-
-[ScalarKernels]
-  [load_control]
-    type = RigidBodyLoadControl
-    variable = indenter_y
-    boundary = mat_top
-    force = applied_force
-    contactor = sphere
-    nodal_area = nodal_area
-    lm_variable = normal_lm
-    displacements = 'disp_x disp_y disp_z'
-    direction = '0 -1 0'
-    c = 1.0
-    # Used by `UzawaTransient` as the outer scalar Newton's approximation
-    # of `dR_s/ds`: `ds = -R_s / (kss_stiffness * sign(direction.axis_hat))`.
-    # A larger value gives smaller (more cautious) outer steps -- more
-    # outer iters, but a wider basin around the tuning; smaller gives
-    # bigger steps.  For this plastic problem 1e6 is a good compromise
-    # between the elastic Hertz tangent (~1e7 at first contact) and the
-    # much softer plastic response later in the ramp.
-    kss_stiffness = 1e6
-  []
-[]
-
 [Materials]
   [tensor]
     type = ComputeIsotropicElasticityTensor
@@ -308,10 +254,9 @@
 
 [Functions]
   [applied_force]
-    # Ramp to a target reaction that induces significant plasticity in the
-    # material.  Chosen so the example completes in a reasonable wall
-    # clock: at F(1) = 1.5e5 the plastic zone extends beyond the contact
-    # patch, and the run finishes in ~5-10 minutes on a single CPU.
+    # Ramp to a target reaction that induces significant plasticity in
+    # the material.  At F(1) = 1.5e5 the plastic zone extends beyond
+    # the contact patch.
     type = PiecewiseLinear
     x = '0 1'
     y = '0 1.5e5'
@@ -319,36 +264,6 @@
 []
 
 [BCs]
-  [rb_tx]
-    type = RigidBodyNormalMechanicalContact
-    variable = disp_x
-    lowerd_variable = normal_lm
-    boundary = mat_top
-    contactor = sphere
-    component = x
-    finite_strain = true
-    displacements = 'disp_x disp_y disp_z'
-  []
-  [rb_ty]
-    type = RigidBodyNormalMechanicalContact
-    variable = disp_y
-    lowerd_variable = normal_lm
-    boundary = mat_top
-    contactor = sphere
-    component = y
-    finite_strain = true
-    displacements = 'disp_x disp_y disp_z'
-  []
-  [rb_tz]
-    type = RigidBodyNormalMechanicalContact
-    variable = disp_z
-    lowerd_variable = normal_lm
-    boundary = mat_top
-    contactor = sphere
-    component = z
-    finite_strain = true
-    displacements = 'disp_x disp_y disp_z'
-  []
   [symm_x]
     type = DirichletBC
     variable = disp_x
@@ -369,41 +284,18 @@
   []
 []
 
-[Problem]
-  kernel_coverage_check = false
-  material_coverage_check = false
-[]
-
-[Preconditioning]
-  [smp]
-    type = SMP
-    full = true
-  []
-[]
-
 [Executioner]
   type = UzawaTransient
 
-  # Outer scalar Newton on `s` -- see [Uzawa] block below.
-  load_control_kernel = load_control
+  # Outer scalar Newton knobs.
+  load_control_kernel = rigid_contact_load_control_top
   outer_max_iter      = 200
-  # `outer_abs_tol` is on |R_s| where R_s has units of force; use a
-  # tolerance that is small compared to the peak reaction (F(1) = 1.5e5).
   outer_abs_tol       = 10
   outer_rel_tol       = 1e-3
-  # Trust-region clip on |ds| per outer iter.  Prevents a badly-chosen
-  # kss_stiffness from producing a wild step; well within Hertz-scale
-  # penetration depths for this problem.
   max_step            = 5e-3
 
-  # Inner primal solve: plain Newton + LU.  The scalar pin
-  # (RigidBodyLoadControl.mode = PinScalar during the primal solve)
-  # eliminates the (u, lambda, s) coupling that would otherwise force
-  # us into SSLS + bounds; the remaining (u, lambda) contact problem
-  # converges from the previous outer's warm state in a handful of
-  # Newton iters per outer.  Auto-scaling stays off for the same
-  # reason as before -- the kss_stiffness shift on the scalar row
-  # would otherwise get renormalized to nothing.
+  # Inner primal solve: plain Newton + LU.  Auto-scaling off so the
+  # kss_stiffness shift on the scalar row is not renormalized away.
   solve_type = NEWTON
   petsc_options_iname = '-snes_type -pc_type -pc_factor_shift_type -pc_factor_shift_amount'
   petsc_options_value = 'newtonls    lu       NONZERO               1e-12'
@@ -418,10 +310,6 @@
   start_time = 0.0
   end_time   = 1.0
 
-  # Adaptive time stepping: analytic-level-set contact concentrates load at a
-  # single node initially, so start small and grow.  Rashid-eigen strain
-  # increments can fail (non-symmetric tensor) if a single Newton step
-  # over-shoots the elastic-plastic corner.
   [TimeStepper]
     type = IterationAdaptiveDT
     dt = 0.005
@@ -431,16 +319,9 @@
     iteration_window = 2
   []
 
-  # Predictor: warm-start the (u_contact, lambda, s) subproblem before the
-  # full monolithic Newton fires.  Confirmed to reduce iteration counts
-  # substantially on elastic force- and displacement-controlled tests
-  # (see `predictor/tests`).  On THIS problem (finite-strain J2 plasticity
-  # + first-step engagement with initial_condition = 0) the sub-solve
-  # inherits the same overshoot / limit-cycle behavior plain Newton
-  # exhibits and does not currently rescue convergence -- captured here so
-  # a future improvement to the sub-solve (SSLS bounds inside, adaptive
-  # step damping, smarter clip-lambda) does not require re-plumbing this
-  # input.
+  # Predictor: staged for the future; currently does not rescue this
+  # hard plastic case (see `uzawa_npc_plan.md`).  UzawaTransient itself
+  # drives convergence.
   [Predictor]
     type = RigidBodyContactPredictor
     boundary = mat_top

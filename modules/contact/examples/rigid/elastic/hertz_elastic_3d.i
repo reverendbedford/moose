@@ -1,27 +1,24 @@
 # Example: rigid sphere pressed into an elastic body, 3D quarter-symmetry,
-# small strain.  Analytic level-set contact stack:
+# small strain.  Analytic level-set contact stack via `[RigidContact]`:
 #
-#   * SphereContactor supplies g_LS(x) = |x - c| - R and its normal / hessian.
-#   * RigidBodyNodalNCPKernel writes R_lambda_i = min(lambda_i, c * g_LS(x_i + u_i))
-#     directly at each Lagrange-multiplier DoF on the deformable contact
-#     sideset's lower-d block (no mortar, no AD, no dual basis).
-#   * RigidBodyNormalMechanicalContact applies -lambda * n * phi_test to the
-#     three displacement equations along the same lower-d block.
+#   * SphereContactor supplies g_LS(x) = |x - c| - R and its normal.
+#   * The action expands into: LowerDBlockFromSidesetGenerator,
+#     RigidBodyContactSparsity, normal_lm variable + bounds,
+#     RigidBodyNodalNCPKernel, RigidBodyNormalMechanicalContact (per
+#     component), problem coverage flags, SMP preconditioning.
 #   * PETSc SNESVINEWTONSSLS + ConstantBounds enforces lambda >= 0.
 #
-# Geometry (quarter of a sphere-on-sphere Hertz setup, symmetry planes at
-# x = 0 and z = 0), reusing modules/contact/test/tests/hertz_spherical/hertz_contact.e:
-#   subdomain 1     = deformable quarter-sphere, radius 2, curved bottom on sideset 100
-#   (mesh's original rigid indenter, subdomain 1000, is stripped by
-#    BlockDeletionGenerator - the analytic sphere replaces it)
-#   sideset 2       = top surface of deformable body, driven by function DirichletBC
-#   sideset 1       = x = 0 symmetry plane; sideset 3 = z = 0 symmetry plane
+# Geometry (quarter of a sphere-on-sphere Hertz setup, symmetry planes
+# at x = 0 and z = 0):
+#   subdomain 1 = deformable quarter-sphere, radius 2, curved bottom on
+#                 sideset 100.  Mesh's rigid indenter (subdomain 1000) is
+#                 stripped; analytic sphere replaces it.
+#   sideset 2   = top surface of deformable body, driven by function BC.
+#   sidesets 1,3 = symmetry planes.
 #
-# Analytical Hertz (rigid sphere R = 2 on elastic body of same geometric R,
-# E = 1.40625e7, nu = 0.25, so E* = 1.5e7 and R_eff = 1):
-#   depth d  = 0.01
-#   contact radius  a  = sqrt(R d)      = 0.1
-#   peak pressure   p0 = 2 E* a / (pi R) = 9.55e5.
+# Analytical Hertz (E = 1.40625e7, nu = 0.25, so E* = 1.5e7, R_eff = 1):
+#   depth d = 0.01, contact radius a = sqrt(R d) = 0.1,
+#   peak pressure p0 = 2 E* a / (pi R) = 9.55e5.
 
 [GlobalParams]
   displacements = 'disp_x disp_y disp_z'
@@ -38,33 +35,15 @@
     input = file
     block = 1000
   []
-  [contact_lower]
-    type = LowerDBlockFromSidesetGenerator
-    input = drop_rigid_indenter
-    sidesets = '100'
-    new_block_id = 10001
-    new_block_name = contact_lower
-  []
   allow_renumbering = false
 []
 
-[UserObjects]
-  [contact_sparsity]
-    type = RigidBodyContactSparsity
-    lm_variable = normal_lm
-    displacements = 'disp_x disp_y disp_z'
-    boundary = 100
-  []
-  [sphere]
-    type = SphereContactor
-    center = '0 -4 0'                     # top of rigid sphere at y = -2, tangent to material tip at t = 0
-    radius = 2.0
-  []
-[]
-
 [Variables]
+  # Disp variables span the lower-d block too, so RigidContact's NCP
+  # kernel and BCs find them via block subset.  SolidMechanics adds
+  # kernels + strain material on block 1 only.
   [disp_x]
-    block = '1 contact_lower'             # nodal sharing on the lower-d block gives disp DoFs at those nodes
+    block = '1 contact_lower'
   []
   [disp_y]
     block = '1 contact_lower'
@@ -72,17 +51,37 @@
   [disp_z]
     block = '1 contact_lower'
   []
-  [normal_lm]
-    block = contact_lower
+[]
+
+[Physics/SolidMechanics/QuasiStatic]
+  [all]
+    strain = SMALL
+    add_variables = false
+    new_system = true
+    formulation = TOTAL
+    block = 1
+  []
+[]
+
+[UserObjects]
+  [sphere]
+    type = SphereContactor
+    center = '0 -4 0'
+    radius = 2.0
+  []
+[]
+
+[RigidContact]
+  [top]
+    contactor = sphere
+    boundary  = 100
+    displacements = 'disp_x disp_y disp_z'
+    lm_variable_name   = normal_lm
+    lower_d_block_name = contact_lower
   []
 []
 
 [AuxVariables]
-  [bounds_dummy]
-    family = LAGRANGE
-    order = FIRST
-    block = contact_lower
-  []
   [stress_xx]
     order = CONSTANT
     family = MONOMIAL
@@ -172,54 +171,6 @@
   []
 []
 
-[Bounds]
-  [lm_lo]
-    type = ConstantBounds
-    variable = bounds_dummy
-    bounded_variable = normal_lm
-    bound_type = lower
-    bound_value = 0.0
-  []
-  [lm_hi]
-    type = ConstantBounds
-    variable = bounds_dummy
-    bounded_variable = normal_lm
-    bound_type = upper
-    bound_value = 1e12
-  []
-[]
-
-[Kernels]
-  [sdx]
-    type = TotalLagrangianStressDivergence
-    variable = disp_x
-    component = 0
-    block = 1
-  []
-  [sdy]
-    type = TotalLagrangianStressDivergence
-    variable = disp_y
-    component = 1
-    block = 1
-  []
-  [sdz]
-    type = TotalLagrangianStressDivergence
-    variable = disp_z
-    component = 2
-    block = 1
-  []
-[]
-
-[NodalKernels]
-  [ncp]
-    type = RigidBodyNodalNCPKernel
-    variable = normal_lm
-    contactor = sphere
-    displacements = 'disp_x disp_y disp_z'
-    block = contact_lower
-  []
-[]
-
 [Materials]
   [tensor]
     type = ComputeIsotropicElasticityTensor
@@ -229,10 +180,6 @@
   []
   [stress]
     type = ComputeLagrangianLinearElasticStress
-    block = 1
-  []
-  [strain]
-    type = ComputeLagrangianStrain
     block = 1
   []
 []
@@ -246,33 +193,6 @@
 []
 
 [BCs]
-  [rb_tx]
-    type = RigidBodyNormalMechanicalContact
-    variable = disp_x
-    lowerd_variable = normal_lm
-    boundary = 100
-    contactor = sphere
-    component = x
-    displacements = 'disp_x disp_y disp_z'
-  []
-  [rb_ty]
-    type = RigidBodyNormalMechanicalContact
-    variable = disp_y
-    lowerd_variable = normal_lm
-    boundary = 100
-    contactor = sphere
-    component = y
-    displacements = 'disp_x disp_y disp_z'
-  []
-  [rb_tz]
-    type = RigidBodyNormalMechanicalContact
-    variable = disp_z
-    lowerd_variable = normal_lm
-    boundary = 100
-    contactor = sphere
-    component = z
-    displacements = 'disp_x disp_y disp_z'
-  []
   [symm_x]
     type = DirichletBC
     variable = disp_x
@@ -293,27 +213,13 @@
   []
 []
 
-[Problem]
-  kernel_coverage_check = false
-  material_coverage_check = false
-[]
-
-[Preconditioning]
-  [smp]
-    type = SMP
-    full = true
-  []
-[]
-
 [Executioner]
   type = Transient
-
   solve_type = NEWTON
   automatic_scaling = true
 
   petsc_options_iname = '-snes_type -pc_type -pc_factor_shift_type -pc_factor_shift_amount'
   petsc_options_value = 'vinewtonssls lu    NONZERO               1e-12'
-
   line_search = semismooth
 
   nl_rel_tol = 1e-9
@@ -324,15 +230,6 @@
   start_time = 0.0
   end_time   = 1.0
   dt         = 0.1
-
-  # NOTE on RigidBodyContactPredictor: the sibling ld-inelastic-force
-  # example enables this predictor to warm-start the coupled (u,
-  # lambda, s) system before the full Newton fires (3-4x iter
-  # reduction there).  It is deliberately NOT enabled here because the
-  # SNESVINEWTONSSLS + `semismooth` line search combo above already
-  # resolves the LM active set efficiently for displacement control
-  # -- the predictor's own sub-solve adds cost without changing outer
-  # iteration counts on this problem class.  See uzawa_npc_plan.md.
 []
 
 [Postprocessors]

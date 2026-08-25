@@ -1,14 +1,12 @@
 # Example: rigid sphere pressed into a J2-plasticity body, 3D
-# quarter-symmetry, LARGE DEFORMATION.
+# quarter-symmetry, LARGE DEFORMATION.  Force-controlled version --
+# the contactor's y-translation is a Scalar Lagrange multiplier driven
+# by a RigidBodyLoadControl kernel to match a prescribed target
+# reaction F(t).
 #
-# Same mesh + rigid-indenter treatment as the elastic 3D example, but the
-# deformable body is now finite-strain J2 plasticity (linear hardening) and
-# the load is ramped further to activate a large plastic zone.
-#
-# Contact stack: analytic level-set (SphereContactor + RigidBodyNodalNCPKernel
-# + RigidBodyNormalMechanicalContact).  Per-node min-NCP, no mortar, no AD,
-# no dual basis.  Runs much faster and to a much larger indentation than the
-# mortar path could sustain (which was AD-container-limited).
+# Contact stack: analytic level-set via `[RigidContact]` action.
+# Setting `force = ...` on the sub-block activates the load-control
+# extensions (adds NodalArea UO, scalar variable, RigidBodyLoadControl).
 #
 # Constitutive stack (new-Lagrangian pipeline with consistent algorithmic
 # tangent):
@@ -36,34 +34,48 @@
     input = file
     block = 1000
   []
-  [contact_lower]
-    type = LowerDBlockFromSidesetGenerator
-    input = drop_rigid_indenter
-    sidesets = '100'
-    new_block_id = 10001
-    new_block_name = contact_lower
-  []
   allow_renumbering = false
 []
 
-[UserObjects]
-  [contact_sparsity]
-    type = RigidBodyContactSparsity
-    lm_variable = normal_lm
-    displacements = 'disp_x disp_y disp_z'
-    boundary = 100
+[Variables]
+  [disp_x]
+    block = '1 contact_lower'
   []
+  [disp_y]
+    block = '1 contact_lower'
+  []
+  [disp_z]
+    block = '1 contact_lower'
+  []
+[]
+
+[Kernels]
+  [sdx]
+    type = TotalLagrangianStressDivergence
+    variable = disp_x
+    component = 0
+    block = 1
+  []
+  [sdy]
+    type = TotalLagrangianStressDivergence
+    variable = disp_y
+    component = 1
+    block = 1
+  []
+  [sdz]
+    type = TotalLagrangianStressDivergence
+    variable = disp_z
+    component = 2
+    block = 1
+  []
+[]
+
+[UserObjects]
   [sphere]
     type = SphereContactor
     center = '0 -4 0'
     radius = 2.0
     disp_y_scalar = indenter_y
-  []
-  [nodal_area]
-    type = NodalArea
-    boundary = 100
-    variable = nodal_area
-    execute_on = 'INITIAL LINEAR'
   []
   [yield_strength]
     type = SolidMechanicsHardeningPowerRule
@@ -79,31 +91,25 @@
   []
 []
 
-[Variables]
-  [disp_x]
-    block = '1 contact_lower'
-  []
-  [disp_y]
-    block = '1 contact_lower'
-  []
-  [disp_z]
-    block = '1 contact_lower'
-  []
-  [normal_lm]
-    block = contact_lower
-  []
-  [indenter_y]
-    family = SCALAR
-    order = FIRST
-    initial_condition = 0.005
+[RigidContact]
+  [top]
+    contactor = sphere
+    boundary  = 100
+    displacements = 'disp_x disp_y disp_z'
+    lm_variable_name   = normal_lm
+    lower_d_block_name = contact_lower
+    # Plain-Newton solver below -- no SSLS + bounds needed.
+    enforce_bounds = false
+    # Force-control extensions:
+    force          = applied_force
+    load_direction = '0 1 0'
+    scalar_variable_name = indenter_y
+    scalar_initial_condition = 0.005
+    nodal_area_variable_name = nodal_area
   []
 []
 
 [AuxVariables]
-  [nodal_area]
-    family = LAGRANGE
-    order = FIRST
-  []
   [plastic_strain_mag]
     order = CONSTANT
     family = MONOMIAL
@@ -205,54 +211,6 @@
   []
 []
 
-
-[Kernels]
-  [sdx]
-    type = TotalLagrangianStressDivergence
-    variable = disp_x
-    component = 0
-    block = 1
-  []
-  [sdy]
-    type = TotalLagrangianStressDivergence
-    variable = disp_y
-    component = 1
-    block = 1
-  []
-  [sdz]
-    type = TotalLagrangianStressDivergence
-    variable = disp_z
-    component = 2
-    block = 1
-  []
-[]
-
-[NodalKernels]
-  [ncp]
-    type = RigidBodyNodalNCPKernel
-    variable = normal_lm
-    contactor = sphere
-    displacements = 'disp_x disp_y disp_z'
-    block = contact_lower
-    c = 1.0
-  []
-[]
-
-[ScalarKernels]
-  [load_control]
-    type = RigidBodyLoadControl
-    variable = indenter_y
-    boundary = 100
-    force = applied_force
-    contactor = sphere
-    nodal_area = nodal_area
-    lm_variable = normal_lm
-    displacements = 'disp_x disp_y disp_z'
-    direction = '0 1 0'
-    c = 1.0
-  []
-[]
-
 [Materials]
   [tensor]
     type = ComputeIsotropicElasticityTensor
@@ -287,10 +245,6 @@
 
 [Functions]
   [applied_force]
-    # Ramp to a target reaction that induces significant plasticity in the
-    # material.  Chosen so the example completes in a reasonable wall
-    # clock: at F(1) = 1.5e5 the plastic zone extends beyond the contact
-    # patch, and the run finishes in ~5-10 minutes on a single CPU.
     type = PiecewiseLinear
     x = '0 1'
     y = '0 1.5e5'
@@ -298,36 +252,6 @@
 []
 
 [BCs]
-  [rb_tx]
-    type = RigidBodyNormalMechanicalContact
-    variable = disp_x
-    lowerd_variable = normal_lm
-    boundary = 100
-    contactor = sphere
-    component = x
-    finite_strain = true
-    displacements = 'disp_x disp_y disp_z'
-  []
-  [rb_ty]
-    type = RigidBodyNormalMechanicalContact
-    variable = disp_y
-    lowerd_variable = normal_lm
-    boundary = 100
-    contactor = sphere
-    component = y
-    finite_strain = true
-    displacements = 'disp_x disp_y disp_z'
-  []
-  [rb_tz]
-    type = RigidBodyNormalMechanicalContact
-    variable = disp_z
-    lowerd_variable = normal_lm
-    boundary = 100
-    contactor = sphere
-    component = z
-    finite_strain = true
-    displacements = 'disp_x disp_y disp_z'
-  []
   [symm_x]
     type = DirichletBC
     variable = disp_x
@@ -348,29 +272,13 @@
   []
 []
 
-[Problem]
-  kernel_coverage_check = false
-  material_coverage_check = false
-[]
-
-[Preconditioning]
-  [smp]
-    type = SMP
-    full = true
-  []
-[]
-
 [Executioner]
   type = Transient
-
   solve_type = NEWTON
   automatic_scaling = true
 
-  # Plain Newton with LU direct solve (see the elastic 3D force-control
-  # test for the reason we can't use SSLS + semismooth line search here).
   petsc_options_iname = '-snes_type -pc_type -pc_factor_shift_type -pc_factor_shift_amount'
   petsc_options_value = 'newtonls    lu       NONZERO               1e-12'
-
   line_search = basic
 
   nl_rel_tol = 1e-9
@@ -381,10 +289,6 @@
   start_time = 0.0
   end_time   = 1.0
 
-  # Adaptive time stepping: analytic-level-set contact concentrates load at a
-  # single node initially, so start small and grow.  Rashid-eigen strain
-  # increments can fail (non-symmetric tensor) if a single Newton step
-  # over-shoots the elastic-plastic corner.
   [TimeStepper]
     type = IterationAdaptiveDT
     dt = 0.005
@@ -394,12 +298,10 @@
     iteration_window = 2
   []
 
-  # Warm-start each time step by resolving the (u_contact, lambda, s)
-  # subproblem before the full monolithic Newton fires.  Cuts cumulative
+  # RigidBodyContactPredictor: warm-starts the (u_contact, lambda, s)
+  # subproblem before the full Newton fires.  Cuts cumulative
   # nonlinear iterations roughly 3-4x on this problem (219 -> 59 at
-  # t=1) and halves wall time.  Without the predictor plain Newton
-  # takes ~10 outer iters on the first-contact step; with it, ~2.
-  # See uzawa_npc_plan.md for the design.
+  # t = 1) and halves wall time.
   [Predictor]
     type = RigidBodyContactPredictor
     boundary = 100

@@ -67,15 +67,9 @@ UzawaTransient::validParams()
       true,
       "Print one line per Uzawa outer iter to the console: `Uzawa outer iter "
       "N: s = <value>, |R_s| = <value>`.  This is the load-controlled "
-      "solve's primary progress signal; on by default.");
-  params.addParam<bool>(
-      "inner_verbose",
-      false,
-      "Also print the inner primal SNES / KSP monitor output ("
-      "`M Nonlinear |R|`, `M Linear |R|`) and MOOSE's `Convergence`-object "
-      "diagnostics.  Off by default -- the inner primal solve runs multiple "
-      "times per outer iter and its monitor lines drown out the outer "
-      "progress signal.  Enable when debugging primal convergence.");
+      "solve's primary progress signal; on by default.  Inner primal "
+      "SNES/KSP output is unaffected by this flag -- MOOSE prints those "
+      "lines according to its usual PetscOutput conventions.");
   return params;
 }
 
@@ -87,8 +81,7 @@ UzawaTransient::UzawaTransient(const InputParameters & parameters)
     _outer_rel_tol(getParam<Real>("outer_rel_tol")),
     _max_step(getParam<Real>("max_step")),
     _damp_max_retries(getParam<unsigned int>("damp_max_retries")),
-    _outer_verbose(getParam<bool>("outer_verbose")),
-    _inner_verbose(getParam<bool>("inner_verbose"))
+    _outer_verbose(getParam<bool>("outer_verbose"))
 {
   // Construct the SolveObject inside the Executioner ctor so MooseObject's
   // "constructed via Factory" check sees `currentlyConstructing()` still
@@ -100,8 +93,7 @@ UzawaTransient::UzawaTransient(const InputParameters & parameters)
                                                     _outer_rel_tol,
                                                     _max_step,
                                                     _damp_max_retries,
-                                                    _outer_verbose,
-                                                    _inner_verbose);
+                                                    _outer_verbose);
 }
 
 UzawaTransient::~UzawaTransient() = default;

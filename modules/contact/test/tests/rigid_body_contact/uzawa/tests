@@ -43,35 +43,22 @@
   # thinks R_s = 0 -> exits after 1 iter -> next timestep starts from
   # wrong state -> primal solve diverges -> IterationAdaptiveDT cuts
   # back forever).
-  # Output-config regression tests -- confirm the `outer_verbose` /
-  # `inner_verbose` params gate what prints per Uzawa outer iter.  The
-  # default (outer_verbose = true, inner_verbose = false) shows one
-  # `Uzawa outer iter N: s=X, |R_s|=Y` line per outer iter and
-  # exactly ONE `M Nonlinear |R|` line per outer iter (the iter-0
-  # header PETSc emits before our SNESSetUpdate cancel can fire), and
-  # ZERO `M Linear |R|` lines.  With `inner_verbose = true`, the full
-  # PETSc SNES + KSP output returns.
+  # Output-config regression tests -- confirm the `outer_verbose` param
+  # gates the `Uzawa outer iter N: s=X, |R_s|=Y` progress line.  The
+  # inner primal SNES + KSP monitor output (`M Nonlinear |R|`,
+  # `M Linear |R|`) prints unconditionally; MOOSE installs those
+  # monitors from `PetscOutput::solveSetup` on every
+  # `FEProblemBase::solve()` and there is no clean pre-iter-0 hook to
+  # cancel them, so they are left alone.
   [output_default]
     type = 'RunApp'
     input = '../load_controlled_elastic_3d/hertz_load_3d.i'
     cli_args = 'Outputs/file_base=/tmp/uzawa_out_default Executioner/end_time=0.01 Executioner/type=UzawaTransient Executioner/load_control_kernel=load_control Executioner/outer_max_iter=15 Executioner/max_step=1e-3 Executioner/outer_abs_tol=1 ScalarKernels/load_control/kss_stiffness=1e6'
     expect_out = 'Uzawa outer iter'
-    absent_out = 'Linear \|R\|'
     max_parallel = 1
     requirement = 'UzawaTransient shall show the outer-iter convergence line by default '
-                  '(`Uzawa outer iter N: s=X, |R_s|=Y`) and suppress the inner primal SNES/KSP '
-                  '`M Linear |R|` monitor lines.  This is the default operating mode: the load-'
-                  'control outer loop is the primary progress signal.'
-  []
-  [output_inner_verbose]
-    type = 'RunApp'
-    input = '../load_controlled_elastic_3d/hertz_load_3d.i'
-    cli_args = 'Outputs/file_base=/tmp/uzawa_out_inner Executioner/end_time=0.01 Executioner/type=UzawaTransient Executioner/load_control_kernel=load_control Executioner/outer_max_iter=15 Executioner/max_step=1e-3 Executioner/outer_abs_tol=1 Executioner/inner_verbose=true ScalarKernels/load_control/kss_stiffness=1e6'
-    expect_out = 'Linear \|R\|'
-    max_parallel = 1
-    requirement = 'UzawaTransient shall restore the full inner primal SNES + KSP monitor output '
-                  '(`M Linear |R|` per KSP iter) when `inner_verbose = true`.  Useful when '
-                  'debugging inner primal convergence.'
+                  '(`Uzawa outer iter N: s=X, |R_s|=Y`).  This is the load-control outer loops '
+                  'primary progress signal.'
   []
   [output_silent]
     type = 'RunApp'
@@ -79,8 +66,9 @@
     cli_args = 'Outputs/file_base=/tmp/uzawa_out_silent Executioner/end_time=0.01 Executioner/type=UzawaTransient Executioner/load_control_kernel=load_control Executioner/outer_max_iter=15 Executioner/max_step=1e-3 Executioner/outer_abs_tol=1 Executioner/outer_verbose=false ScalarKernels/load_control/kss_stiffness=1e6'
     absent_out = 'Uzawa outer iter'
     max_parallel = 1
-    requirement = 'UzawaTransient shall also suppress its own outer-iter progress line when '
-                  '`outer_verbose = false`, for callers who want completely quiet Uzawa runs.'
+    requirement = 'UzawaTransient shall suppress its own outer-iter progress line when '
+                  '`outer_verbose = false`, for callers who want to see only MOOSEs standard '
+                  'per-solve output.'
   []
   [hertz_load_3d_with_uzawa_mpi]
     type = 'CSVDiff'

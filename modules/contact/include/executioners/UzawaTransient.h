@@ -73,7 +73,6 @@ private:
   const Real _max_step;
   const unsigned int _damp_max_retries;
   const bool _outer_verbose;
-  const bool _inner_verbose;
 
   /// The wrapper SolveObject that runs the outer loop.  Constructed in
   /// `init()` (after MOOSE has instantiated ScalarKernels so the

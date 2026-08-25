@@ -71,7 +71,25 @@ RigidBodyLoadControl::validParams()
       "is unchanged) that keeps Newton from overshooting when the true "
       "Schur-complement Kss is O(K_material * A_contact) but the assembled "
       "block is zero.  Set to 0 (default) to disable.  A sensible value is "
-      "the deformable body's Young's modulus.");
+      "the deformable body's Young's modulus.  Also serves as the "
+      "approximation of dR_s/ds used by `UzawaTransient` for its scalar "
+      "Newton step.");
+  params.addParam<MooseEnum>(
+      "mode",
+      MooseEnum("ForceBalance PinScalar", "ForceBalance"),
+      "Initial residual/Jacobian form.  ForceBalance (default) is the "
+      "physical formulation `R_s = Sum w * lambda * (n.dir) - F(t)` with the "
+      "Kls transpose and Ksl blocks and the optional `kss_stiffness` "
+      "diagonal shift.  PinScalar emits `R_s = s - s_pin, Kss = 1` and no "
+      "coupling blocks -- used by `UzawaTransient` during the primal solve "
+      "to hold `s` fixed at the current outer-iterate value.  This param "
+      "sets the *starting* mode; `UzawaTransient` calls `setMode()` at "
+      "runtime to flip between the two.");
+  params.addParam<Real>(
+      "s_pin",
+      0.0,
+      "Initial value of the PinScalar target.  Runtime updates go through "
+      "`setMode()`.  In ForceBalance mode this parameter is ignored.");
   return params;
 }
 
@@ -88,7 +106,10 @@ RigidBodyLoadControl::RigidBodyLoadControl(const InputParameters & parameters)
     _lambda(coupledValue("lm_variable")),
     _ndisp(coupledComponents("displacements")),
     _disp_var_num(_ndisp),
-    _disp(_ndisp)
+    _disp(_ndisp),
+    _mode(getParam<MooseEnum>("mode").getEnum<Mode>()),
+    _s_pin(getParam<Real>("s_pin")),
+    _cached_reaction_minus_F(0.0)
 {
   const Real n = _direction.norm();
   if (n < TOLERANCE)
@@ -157,6 +178,13 @@ RigidBodyLoadControl::nodeIsAccessible(std::size_t k) const
 }
 
 void
+RigidBodyLoadControl::setMode(Mode m, Real s_pin)
+{
+  _mode = m;
+  _s_pin = s_pin;
+}
+
+void
 RigidBodyLoadControl::computeResidual()
 {
   // Parallel note: MOOSE calls ScalarKernel::computeResidual only on the
@@ -169,6 +197,11 @@ RigidBodyLoadControl::computeResidual()
   // partitions.  `_lambda[k]` and `_disp[k]` at those ghosted nodes carry
   // the correct up-to-date values because `NodalScalarKernel::reinit()`
   // called `_subproblem.reinitNodes(_node_ids, _tid)` beforehand.
+  //
+  // The reaction sum is ALWAYS computed (both modes need it: ForceBalance
+  // to emit it as R_s, PinScalar to cache it for UzawaTransient's outer
+  // Newton step to read via currentReactionMinusF()).  Only the value
+  // written into `_local_re(0)` differs.
   const Real F = _force.value(_t, Point());
   Real reaction = 0.0;
   // `_lambda` and `_disp[k]` are populated by NodalScalarKernel::reinit()
@@ -189,15 +222,45 @@ RigidBodyLoadControl::computeResidual()
     reaction += w * _lambda[j] * (q.normal * _direction);
     ++j;
   }
+  _cached_reaction_minus_F = reaction - F;
 
   prepareVectorTag(_assembly, _var.number());
-  _local_re(0) = reaction - F;
+  if (_mode == Mode::PinScalar)
+    // R_s = s - s_pin.  `_u[0]` is the current scalar variable value.
+    _local_re(0) = _u[0] - _s_pin;
+  else
+    _local_re(0) = _cached_reaction_minus_F;
   assignTaggedLocalResidual();
 }
 
 void
 RigidBodyLoadControl::computeJacobian()
 {
+  // PinScalar mode: R_s = s - s_pin.  Emit Kss = 1 and stop.  We do NOT
+  // touch the (s, lambda) or (lambda, s) blocks: with Kss = 1 dominating
+  // the scalar row, Newton drives `s -> s_pin` immediately at iter 0 and
+  // the (u, lambda) primal solve then decouples.  Leaving Kls / Ksl
+  // stale in those blocks would just add a tiny irrelevant coupling that
+  // the outer SNES trivially handles.
+  if (_mode == Mode::PinScalar)
+  {
+    prepareMatrixTag(_assembly, _var.number(), _var.number());
+    for (const auto i : make_range(_local_ke.m()))
+      for (const auto j : make_range(_local_ke.n()))
+        _local_ke(i, j) = 0.0;
+    _local_ke(0, 0) = 1.0;
+    assignTaggedLocalMatrix();
+    // Zero the (scalar_row, lambda_col) block so previous ForceBalance
+    // entries do not linger in the sparse matrix from a prior
+    // computeJacobian at the same DOFs.
+    prepareMatrixTag(_assembly, _var.number(), _lm_var_num);
+    for (const auto i : make_range(_local_ke.m()))
+      for (const auto j : make_range(_local_ke.n()))
+        _local_ke(i, j) = 0.0;
+    assignTaggedLocalMatrix();
+    return;
+  }
+
   // Precompute per-node normal projections (also decides which branch of
   // the NCP each node is on, for the transpose block).  Same
   // single-rank-with-ghosted-nodes assumption as computeResidual.

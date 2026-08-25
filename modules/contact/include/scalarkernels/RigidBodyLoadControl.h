@@ -10,6 +10,7 @@
 #pragma once
 
 #include "NodalScalarKernel.h"
+#include "MooseEnum.h"
 
 class Function;
 class LevelSetContactor;
@@ -58,6 +59,46 @@ public:
 
   virtual void computeResidual() override;
   virtual void computeJacobian() override;
+
+  /// Two operating modes.  See the `mode` param docstring.
+  enum class Mode
+  {
+    ForceBalance = 0,
+    PinScalar = 1
+  };
+
+  /// The reaction mismatch `Sum_i w_i * lambda_i * (n_i . direction) - F(t)`
+  /// AT THE STATE from the most recent `computeResidual()` call.  This is
+  /// the true (mode-independent) scalar residual the force-balance
+  /// formulation would emit.  It is populated by `computeResidual` in BOTH
+  /// modes (residual assembly always computes the reaction sum; only the
+  /// value written to `_local_re` differs between modes).  Used by
+  /// `UzawaTransient` to read `R_s` at a converged primal solve without
+  /// forcing a second residual assembly.
+  Real currentReactionMinusF() const { return _cached_reaction_minus_F; }
+
+  /// Runtime mutator used by `UzawaTransient` to flip the residual /
+  /// Jacobian form between primal solves and the R_s read-back.  The
+  /// input file's `mode` and `s_pin` params are treated as the initial
+  /// values; after construction they are governed by whoever calls
+  /// `setMode()`.
+  void setMode(Mode m, Real s_pin);
+
+  /// Read-only accessor for the current mode.
+  Mode currentMode() const { return _mode; }
+
+  /// Signed approximation of `dR_s/ds` suitable for the outer 1D Newton
+  /// step in `UzawaTransient`.  Returns `kss_stiffness * (direction .
+  /// axis_hat)` -- positive when `direction` and `axis_hat` agree
+  /// (pushing s up increases reaction, so Newton on `R_s = 0` wants
+  /// `ds = -R_s/kss > 0` when reaction < target), negative otherwise.
+  /// The `total_nodal_area` factor used inside the ForceBalance-mode
+  /// Jacobian diagonal is deliberately dropped: the outer scalar
+  /// Newton only needs a scalar effective stiffness (per unit s), not
+  /// an integrated one, and the `max_step` trust region absorbs the
+  /// O(1) mismatch.  Sign is what matters most; `kss_stiffness`
+  /// magnitude is the user's tuning knob.
+  Real signedKssApprox() const { return _kss_stiffness * _direction(_axis); }
 
 private:
   /// Deformed position of the k-th LM node (undeformed node + displacement).
@@ -109,4 +150,16 @@ private:
   const unsigned int _ndisp;
   std::vector<unsigned int> _disp_var_num;
   std::vector<const VariableValue *> _disp;
+
+  /// Operating mode.  Initialized from the input's `mode` param;
+  /// thereafter set by `setMode()` (used by `UzawaTransient`).
+  Mode _mode;
+  /// Target value for the scalar `s` when `_mode = PinScalar`.
+  /// Initialized from the input's `s_pin` param; thereafter set by
+  /// `setMode()`.
+  Real _s_pin;
+
+  /// Cache of the force-balance residual at the most recent
+  /// computeResidual() call.  See `currentReactionMinusF()`.
+  Real _cached_reaction_minus_F;
 };

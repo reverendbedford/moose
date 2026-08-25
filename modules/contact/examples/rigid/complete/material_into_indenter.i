@@ -19,20 +19,14 @@
 #   stabilize_strain = true to avoid nearly-incompressible plastic locking
 #     on linear hexes.
 #
-# STATUS -- KNOWN NOT CONVERGING WITH PLAIN NEWTON.  The load-control
-# scalar equation dR_s/ds is structurally zero in the current formulation,
-# so plain Newton on the coupled (u, lambda, s) system has no diagonal
-# information to bound its scalar step.  RigidBodyLoadControl.kss_stiffness
-# fabricates a preconditioner-only Kss diagonal, and it converges the
-# frame-invariance regression tests (elastic Hertz at moderate load),
-# but for this problem -- finite-strain J2 plasticity, load ramping to
-# F(1) = 1.5e5, deep contact patch -- plain Newton with any fixed Kss
-# choice enters a limit cycle at the first step (see notes in
-# load_control_plan.md, Phase 2 / Uzawa outer loop).  The file below is
-# staged with correct inputs (direction = '0 -1 0', kss_stiffness set to
-# Young's modulus, auto-scaling off so the fabricated Kss does not
-# neutralize itself) so that once the Uzawa executioner lands, running
-# this example is a one-line executioner swap rather than a rewrite.
+# Solver: this example uses `UzawaTransient`, which splits the coupled
+# (u, lambda, s) system into an outer 1D Newton on `s` wrapping an
+# inner SSLS primal solve on (u, lambda).  Plain `Transient` + plain
+# Newton limit-cycles on this problem regardless of `kss_stiffness`,
+# `RigidBodyContactPredictor`, or IC warm-up because `dR_s/ds` is
+# structurally zero and no fixed preconditioner reproduces the true
+# Schur-complement stiffness across the plastic load path.  See
+# `uzawa_solver_plan.md` for the design.
 
 [GlobalParams]
   displacements = 'disp_x disp_y disp_z'
@@ -269,14 +263,14 @@
     displacements = 'disp_x disp_y disp_z'
     direction = '0 -1 0'
     c = 1.0
-    # Preconditioner-only shift on the (scalar_row, scalar_col) Jacobian
-    # entry.  See the kernel's kss_stiffness docstring: the analytical
-    # dR_s/ds is zero, so plain Newton on the coupled (u, lambda, s)
-    # system overshoots dramatically on any non-trivial load ramp.  A
-    # value near the material's Young's modulus makes the fabricated
-    # diagonal comparable to the true Schur-complement stiffness and
-    # gets Newton to descend cleanly.
-    kss_stiffness = 1.40625e7
+    # Used by `UzawaTransient` as the outer scalar Newton's approximation
+    # of `dR_s/ds`: `ds = -R_s / (kss_stiffness * sign(direction.axis_hat))`.
+    # A larger value gives smaller (more cautious) outer steps -- more
+    # outer iters, but a wider basin around the tuning; smaller gives
+    # bigger steps.  For this plastic problem 1e6 is a good compromise
+    # between the elastic Hertz tangent (~1e7 at first contact) and the
+    # much softer plastic response later in the ramp.
+    kss_stiffness = 1e6
   []
 []
 
@@ -388,22 +382,33 @@
 []
 
 [Executioner]
-  type = Transient
+  type = UzawaTransient
 
+  # Outer scalar Newton on `s` -- see [Uzawa] block below.
+  load_control_kernel = load_control
+  outer_max_iter      = 200
+  # `outer_abs_tol` is on |R_s| where R_s has units of force; use a
+  # tolerance that is small compared to the peak reaction (F(1) = 1.5e5).
+  outer_abs_tol       = 10
+  outer_rel_tol       = 1e-3
+  # Trust-region clip on |ds| per outer iter.  Prevents a badly-chosen
+  # kss_stiffness from producing a wild step; well within Hertz-scale
+  # penetration depths for this problem.
+  max_step            = 5e-3
+
+  # Inner primal solve: plain Newton + LU.  The scalar pin
+  # (RigidBodyLoadControl.mode = PinScalar during the primal solve)
+  # eliminates the (u, lambda, s) coupling that would otherwise force
+  # us into SSLS + bounds; the remaining (u, lambda) contact problem
+  # converges from the previous outer's warm state in a handful of
+  # Newton iters per outer.  Auto-scaling stays off for the same
+  # reason as before -- the kss_stiffness shift on the scalar row
+  # would otherwise get renormalized to nothing.
   solve_type = NEWTON
-  # Auto-scaling would read the huge (scalar, scalar) diagonal fabricated
-  # by RigidBodyLoadControl.kss_stiffness and scale the scalar equation
-  # by ~1/kss_stiffness -- the raw scalar residual would then look
-  # already-converged from the start and Newton would never move the
-  # sphere.  Leave scaling off so SNES sees the unscaled R_s.
-  automatic_scaling = false
-
-  # Plain Newton with LU direct solve (see the elastic 3D force-control
-  # test for the reason we can't use SSLS + semismooth line search here).
   petsc_options_iname = '-snes_type -pc_type -pc_factor_shift_type -pc_factor_shift_amount'
   petsc_options_value = 'newtonls    lu       NONZERO               1e-12'
-
   line_search = basic
+  automatic_scaling = false
 
   nl_rel_tol = 1e-9
   nl_abs_tol = 1e-8

@@ -1,0 +1,34 @@
+[Tests]
+  design = 'UzawaTransient.md'
+  issues = '#0000'
+  # Certifies UzawaTransient correctness on a force-controlled 3D
+  # elastic-Hertz problem where plain Newton (baseline
+  # load_controlled_elastic_3d/hertz_load_3d) already converges.  We
+  # compare the converged state at every time step against a gold
+  # captured with Uzawa on -- these must match the plain-Newton state
+  # within the RigidBodyLoadControl residual tolerance, since the
+  # physical fixed point is mode-independent.
+  #
+  # This test does NOT certify iteration-count savings.  For an elastic
+  # 3D problem that plain Newton already handles cheaply, Uzawa is
+  # actually slower per-solve (each outer iter runs a full primal
+  # SNES).  Its purpose is to convert cases that plain Newton
+  # limit-cycles on into cases that terminate at all -- see the
+  # `examples/rigid/complete/material_into_indenter.i` header for the
+  # motivating case (finite-strain J2 plasticity, load ramp to
+  # F(1) = 1.5e5).
+
+  [hertz_load_3d_with_uzawa]
+    type = 'CSVDiff'
+    input = '../load_controlled_elastic_3d/hertz_load_3d.i'
+    csvdiff = 'hertz_load_3d_uzawa_csv.csv'
+    cli_args = 'Outputs/file_base=hertz_load_3d_uzawa_csv Executioner/end_time=0.05 Executioner/type=UzawaTransient Executioner/load_control_kernel=load_control Executioner/outer_max_iter=30 Executioner/max_step=1e-3 Executioner/outer_abs_tol=1 Executioner/outer_rel_tol=1e-3 ScalarKernels/load_control/kss_stiffness=1e6'
+    rel_err = 1e-4
+    max_parallel = 1
+    heavy = true
+    requirement = 'UzawaTransient shall converge a 3D force-controlled rigid-body contact '
+                  'problem to the same fixed point as plain Newton, within the load-control '
+                  'residual tolerance.  This certifies that the outer 1D scalar Newton and the '
+                  'inner primal SSLS produce a physically-consistent (u, lambda, s) state.'
+  []
+[]

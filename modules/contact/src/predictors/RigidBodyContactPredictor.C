@@ -85,11 +85,11 @@ RigidBodyContactPredictor::RigidBodyContactPredictor(const InputParameters & par
     _scalar_var_name(isParamValid("scalar_variable")
                          ? static_cast<std::string>(getParam<VariableName>("scalar_variable"))
                          : std::string()),
+    _lm_var_num(libMesh::invalid_uint),
     _k_hops(getParam<unsigned int>("k_hops")),
     _sub_max_iter(getParam<unsigned int>("sub_max_iter")),
     _sub_abs_tol(getParam<Real>("sub_abs_tol")),
     _sub_rel_tol(getParam<Real>("sub_rel_tol")),
-    _lm_var_num(libMesh::invalid_uint),
     _region_is(nullptr),
     _region_ready(false),
     _setup_done(false)

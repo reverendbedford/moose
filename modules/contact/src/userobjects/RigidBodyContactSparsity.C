@@ -75,11 +75,19 @@ RigidBodyContactSparsity::RigidBodyContactSparsity(const InputParameters & param
   for (const auto k : make_range(_ndisp))
     _disp_var_num[k] = _fe_problem.getVariable(0, disp_names[k]).number();
 
-  // Attach ourselves as an AugmentSparsityPattern on the nonlinear system's
-  // DofMap.  The (function, object) slots are separate on libMesh's DofMap,
-  // so we coexist with MOOSE's existing extraSparsity function callback.
+  // Register via SystemBase's callback list rather than DofMap's object slot.
+  // MOOSE already installs its own `extraSparsity` function on the DofMap; if
+  // we ALSO attach to the object slot libMesh warns ("both a function AND
+  // object..."), even though both actually fire.  Routing through the system's
+  // callback list keeps everything in MOOSE's single function callback, no
+  // warning, and gives us access to any future MOOSE-side augmentation
+  // additions for free.
   auto & nl = _fe_problem.getNonlinearSystemBase(/*sys_num=*/0);
-  nl.dofMap().attach_extra_sparsity_object(*this);
+  nl.addExtraSparsityCallback(
+      [this](libMesh::SparsityPattern::Graph & sparsity,
+             std::vector<libMesh::dof_id_type> & n_nz,
+             std::vector<libMesh::dof_id_type> & n_oz)
+      { applyExtraSparsity(sparsity, n_nz, n_oz); });
 }
 
 void
@@ -109,10 +117,9 @@ RigidBodyContactSparsity::initialSetup()
 }
 
 void
-RigidBodyContactSparsity::augment_sparsity_pattern(
-    libMesh::SparsityPattern::Graph & sparsity,
-    std::vector<libMesh::dof_id_type> & n_nz,
-    std::vector<libMesh::dof_id_type> & n_oz)
+RigidBodyContactSparsity::applyExtraSparsity(libMesh::SparsityPattern::Graph & sparsity,
+                                             std::vector<libMesh::dof_id_type> & n_nz,
+                                             std::vector<libMesh::dof_id_type> & n_oz)
 {
   auto & nl = _fe_problem.getNonlinearSystemBase(/*sys_num=*/0);
   const auto & dof_map = nl.dofMap();

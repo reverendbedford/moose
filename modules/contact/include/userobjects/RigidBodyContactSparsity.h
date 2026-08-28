@@ -20,11 +20,11 @@
  * RigidBodyNormalMechanicalContact's cross-node (LM_row, disp_col) writes
  * on the lower-d element force PETSc to malloc on every Jacobian assembly.
  *
- * Attaches itself as an AugmentSparsityPattern on the nonlinear system's
- * DofMap.
+ * Registers via SystemBase::addExtraSparsityCallback() so it coexists with
+ * MOOSE's own extra-sparsity function on the nonlinear-system DofMap without
+ * tripping libMesh's "both function *and* object slot set" warning.
  */
-class RigidBodyContactSparsity : public GeneralUserObject,
-                                 public libMesh::SparsityPattern::AugmentSparsityPattern
+class RigidBodyContactSparsity : public GeneralUserObject
 {
 public:
   static InputParameters validParams();
@@ -35,11 +35,12 @@ public:
   virtual void execute() override {}
   virtual void finalize() override {}
 
-  virtual void augment_sparsity_pattern(libMesh::SparsityPattern::Graph & sparsity,
-                                        std::vector<libMesh::dof_id_type> & n_nz,
-                                        std::vector<libMesh::dof_id_type> & n_oz) override;
-
 private:
+  /// Callback body registered with SystemBase::addExtraSparsityCallback().
+  void applyExtraSparsity(libMesh::SparsityPattern::Graph & sparsity,
+                          std::vector<libMesh::dof_id_type> & n_nz,
+                          std::vector<libMesh::dof_id_type> & n_oz);
+
   const unsigned int _lm_var_num;
   const unsigned int _ndisp;
   std::vector<unsigned int> _disp_var_num;

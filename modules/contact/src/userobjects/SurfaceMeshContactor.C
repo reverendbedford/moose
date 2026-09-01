@@ -12,6 +12,8 @@
 #include "KDTree.h"
 #include "TriangleManifold.h"
 
+#include "MooseUtils.h"
+
 #include "libmesh/elem.h"
 #include "libmesh/mesh_modification.h"
 #include "libmesh/replicated_mesh.h"
@@ -83,10 +85,14 @@ SurfaceMeshContactor::initialSetup()
   const auto n_active = _mesh->n_active_elem();
   _centroids.reserve(n_active);
   _triangles.reserve(n_active);
+  _vertex_incident_tris.clear();
+  _vertex_incident_tris.reserve(3 * n_active);
   for (const auto * elem : _mesh->active_element_ptr_range())
   {
     _centroids.push_back(elem->vertex_average());
     _triangles.push_back(elem);
+    for (const auto n : make_range(elem->n_nodes()))
+      _vertex_incident_tris[elem->node_id(n)].push_back(elem);
   }
 
   _kd_tree = std::make_unique<KDTree>(_centroids, /*leaf_max_size=*/10);
@@ -207,14 +213,18 @@ SurfaceMeshContactor::queryAtRaw(const Point & x) const
   const RealVectorValue v = x - cp;
   const Real d = v.norm();
 
-  // Sign of g_LS: derived from the closest triangle's face normal rather than
-  // a global point-in-solid ray cast.  For any consistently outward-oriented
-  // closed manifold, v is essentially parallel to the outward normal of the
-  // closest surface feature, so sign(v · n_face) tells us which side we're
-  // on.  This is O(1) per query and avoids the discrete sign flip that a
-  // TriangleManifold::contains fallback would introduce on the medial axis.
-  const RealVectorValue n_face = faceNormal(*tri);
-  const Real vdotn = v * n_face;
+  // Sign of g_LS: derived from the Baerentzen and Aanaes (2005) angle-weighted
+  // pseudonormal at the closest surface feature (face interior, edge, or
+  // vertex).  For a consistently outward-oriented closed manifold this gives
+  // the mathematically correct inside/outside classification on every feature.
+  // A single-face-normal heuristic fails at convex corners where the KDTree
+  // returns a non-adjacent triangle whose outward direction disagrees with
+  // the true local outward -- e.g. a query past the base corner of a pyramid
+  // whose closest surface point is the corner vertex, where the closest
+  // triangle by centroid can be the top base plane (normal +y) even though
+  // the outward direction at the corner has significant lateral components.
+  const RealVectorValue n_psn = pseudoNormal(cp, *tri);
+  const Real vdotn = v * n_psn;
   const Real sign = vdotn >= 0.0 ? 1.0 : -1.0;
 
   Query q;
@@ -225,12 +235,120 @@ SurfaceMeshContactor::queryAtRaw(const Point & x) const
     // surface normal at CP: v/d itself on the outside, flipped on the inside.
     q.normal = (sign / d) * v;
   else
-    // On-surface: v ≈ 0, use the closest triangle's face normal directly.
-    q.normal = n_face;
+    // On-surface: v ≈ 0, use the pseudonormal at the closest feature.
+    q.normal = n_psn;
 
   // Piecewise-flat facets ⇒ true Hessian is zero on facet interiors.
   q.hessian = RealTensorValue();
   return q;
+}
+
+RealVectorValue
+SurfaceMeshContactor::pseudoNormal(const Point & cp, const libMesh::Elem & tri) const
+{
+  // Classify `cp` against `tri`'s three vertices and three edges.
+  // Vertex hit: |cp - v_i| within tolerance.
+  // Edge hit: cp within tolerance of the edge segment (both perpendicular
+  //   distance to the infinite line and parameter t in [0,1]).
+  // Otherwise: interior of `tri`.  A generous tol (the same one used to
+  // validate the manifold at load time) keeps the classification robust
+  // against the small numerical drift produced by closestPointOnTriangle's
+  // barycentric arithmetic.
+  const Point & a = tri.point(0);
+  const Point & b = tri.point(1);
+  const Point & c = tri.point(2);
+  const Real tol = _surface_tolerance;
+
+  // Vertex hits.
+  int vhit = -1;
+  if ((cp - a).norm() < tol)
+    vhit = 0;
+  else if ((cp - b).norm() < tol)
+    vhit = 1;
+  else if ((cp - c).norm() < tol)
+    vhit = 2;
+
+  if (vhit >= 0)
+  {
+    // Sum alpha_t * n_face(t) over every triangle t incident to this vertex,
+    // where alpha_t is the interior angle at the vertex in t.
+    const libMesh::dof_id_type nid = tri.node_id(vhit);
+    auto it = _vertex_incident_tris.find(nid);
+    if (it == _vertex_incident_tris.end())
+      return faceNormal(tri);
+    RealVectorValue psn;
+    for (const libMesh::Elem * t : it->second)
+    {
+      unsigned int j = libMesh::invalid_uint;
+      for (const auto k : make_range(t->n_nodes()))
+        if (t->node_id(k) == nid)
+        {
+          j = k;
+          break;
+        }
+      if (j == libMesh::invalid_uint)
+        continue;
+      const Point & A = t->point(j);
+      const Point & B = t->point((j + 1) % 3);
+      const Point & C = t->point((j + 2) % 3);
+      const Point e1 = B - A;
+      const Point e2 = C - A;
+      const Real l1 = e1.norm();
+      const Real l2 = e2.norm();
+      if (l1 == 0.0 || l2 == 0.0)
+        continue;
+      Real cosa = (e1 * e2) / (l1 * l2);
+      // clamp acos argument against roundoff.
+      if (cosa > 1.0)
+        cosa = 1.0;
+      else if (cosa < -1.0)
+        cosa = -1.0;
+      const Real alpha = std::acos(cosa);
+      psn += alpha * faceNormal(*t);
+    }
+    const Real nn = psn.norm();
+    if (nn > 0.0)
+      return psn / nn;
+    return faceNormal(tri);
+  }
+
+  // Edge hits.  libMesh's Tri3 side ordering: side s spans nodes {s, (s+1)%3}.
+  auto onEdge = [&tol](const Point & p, const Point & p0, const Point & p1)
+  {
+    const Point e = p1 - p0;
+    const Real len2 = e.norm_sq();
+    if (len2 == 0.0)
+      return false;
+    const Real t = ((p - p0) * e) / len2;
+    if (t < -tol || t > 1.0 + tol)
+      return false;
+    const Point proj = p0 + t * e;
+    return (p - proj).norm() < tol;
+  };
+  int ehit = -1;
+  if (onEdge(cp, a, b))
+    ehit = 0; // side 0: {0, 1}
+  else if (onEdge(cp, b, c))
+    ehit = 1; // side 1: {1, 2}
+  else if (onEdge(cp, c, a))
+    ehit = 2; // side 2: {2, 0}
+
+  if (ehit >= 0)
+  {
+    // Two incident triangles: `tri` and its edge neighbor across side `ehit`.
+    // Equal-weight sum of face normals (Baerentzen edge pseudonormal).  A
+    // validated closed manifold has a non-null neighbor on every side; fall
+    // back to the face normal defensively if we somehow do not.
+    const libMesh::Elem * neigh = tri.neighbor_ptr(ehit);
+    if (!neigh)
+      return faceNormal(tri);
+    RealVectorValue psn = faceNormal(tri) + faceNormal(*neigh);
+    const Real nn = psn.norm();
+    return nn > 0.0 ? psn / nn : faceNormal(tri);
+  }
+
+  // Interior of `tri`: the ordinary face normal is exact.
+  return faceNormal(tri);
 }
 
 Real

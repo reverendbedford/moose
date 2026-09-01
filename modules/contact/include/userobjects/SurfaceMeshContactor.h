@@ -10,7 +10,11 @@
 #pragma once
 
 #include "LevelSetContactor.h"
+
+#include "libmesh/id_types.h"
+
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 namespace libMesh
@@ -73,6 +77,21 @@ private:
    */
   Point closestSurfacePoint(const Point & x, const libMesh::Elem *& closest_tri) const;
 
+  /**
+   * Angle-weighted pseudonormal at `cp` on `tri`, following Baerentzen and
+   * Aanaes (2005).  For a `cp` in the interior of `tri` this is just the
+   * face normal.  For a `cp` on an edge shared by two triangles it is the
+   * (unit-weight) sum of the two face normals; for a `cp` at a vertex it
+   * is the interior-angle-weighted sum over every triangle incident to
+   * that vertex.  Using it (instead of the closest triangle's face normal
+   * alone) gives the mathematically correct SDF sign at edges and vertices
+   * of the manifold -- the face-normal-only heuristic can pick the wrong
+   * sign at convex corners when the KDTree returns a non-adjacent triangle
+   * whose outward direction differs from the true local outward at the
+   * shared feature.
+   */
+  RealVectorValue pseudoNormal(const Point & cp, const libMesh::Elem & tri) const;
+
   const FileName _file;
   const Point _translation;
   const Real _scale;
@@ -82,4 +101,10 @@ private:
   std::unique_ptr<KDTree> _kd_tree;
   std::vector<Point> _centroids;
   std::vector<const libMesh::Elem *> _triangles;
+
+  /// node_id -> every triangle in the surface mesh that includes that node.
+  /// Populated in initialSetup once the mesh is de-duplicated and prepared;
+  /// used by pseudoNormal() when the closest surface point is at a vertex.
+  std::unordered_map<libMesh::dof_id_type, std::vector<const libMesh::Elem *>>
+      _vertex_incident_tris;
 };

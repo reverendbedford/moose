@@ -74,6 +74,10 @@ RigidBodyContactPredictor::validParams()
   // blend), but exposed to satisfy the base and to disable prediction via
   // `scale = 0` for A/B tests.
   params.set<Real>("scale") = 1.0;
+  // Allow MOOSE Controls to flip the predictor on/off at runtime.  Base
+  // `MooseObject` already carries the `enable` param; `shouldApply()` below
+  // consults `enabled()` so a controllable toggle actually short-circuits.
+  params.declareControllable("enable");
   return params;
 }
 
@@ -103,6 +107,14 @@ RigidBodyContactPredictor::~RigidBodyContactPredictor()
     auto ierr = ISDestroy(&_region_is);
     (void)ierr;
   }
+}
+
+bool
+RigidBodyContactPredictor::shouldApply()
+{
+  if (!enabled())
+    return false;
+  return Predictor::shouldApply();
 }
 
 void

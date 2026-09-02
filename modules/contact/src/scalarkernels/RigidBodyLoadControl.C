@@ -11,6 +11,7 @@
 
 #include "Assembly.h"
 #include "AuxiliarySystem.h"
+#include "FEProblemBase.h"
 #include "Function.h"
 #include "LevelSetContactor.h"
 #include "MooseMesh.h"
@@ -64,16 +65,26 @@ RigidBodyLoadControl::validParams()
       "kss_stiffness",
       0.0,
       "kss_stiffness >= 0",
-      "Effective contact stiffness used to fabricate a nonzero (scalar_row, "
-      "scalar_col) Jacobian entry as `Kss = kss_stiffness * total_nodal_area "
-      "* sign(direction . axis_hat)`.  This is a JACOBIAN-ONLY preconditioning "
-      "modification (residual is unchanged, so the physical fixed point R_s = 0 "
-      "is unchanged) that keeps Newton from overshooting when the true "
-      "Schur-complement Kss is O(K_material * A_contact) but the assembled "
-      "block is zero.  Set to 0 (default) to disable.  A sensible value is "
-      "the deformable body's Young's modulus.  Also serves as the "
-      "approximation of dR_s/ds used by `UzawaTransient` for its scalar "
-      "Newton step.");
+      "Constant scalar variant of the effective contact stiffness used to "
+      "fabricate a nonzero (scalar_row, scalar_col) Jacobian entry as "
+      "`Kss = kss_stiffness * total_nodal_area * sign(direction . axis_hat)`. "
+      "This is a JACOBIAN-ONLY preconditioning modification (residual is "
+      "unchanged, so the physical fixed point R_s = 0 is unchanged) that "
+      "keeps Newton from overshooting when the true Schur-complement Kss is "
+      "O(K_material * A_contact) but the assembled block is zero.  Set to 0 "
+      "(default) to disable.  A sensible value is the deformable body's "
+      "Young's modulus.  Also serves as the approximation of dR_s/ds used by "
+      "`UzawaTransient` for its scalar Newton step.  Mutually exclusive with "
+      "`kss_stiffness_function`.");
+  params.addParam<FunctionName>(
+      "kss_stiffness_function",
+      "Function-of-time variant of the same effective contact stiffness. "
+      "Evaluated at (current time, origin) whenever the stiffness is needed "
+      "(computeJacobian, UzawaTransient's `signedKssApprox`), replacing the "
+      "constant `kss_stiffness` for that assembly.  Useful when a single "
+      "constant does not cover the range spanned by the load history -- "
+      "e.g. much larger during initial impact than during a well-established "
+      "plastic patch.  Mutually exclusive with `kss_stiffness`.");
   params.addParam<MooseEnum>(
       "mode",
       MooseEnum("ForceBalance PinScalar", "ForceBalance"),
@@ -99,7 +110,10 @@ RigidBodyLoadControl::RigidBodyLoadControl(const InputParameters & parameters)
     _contactor(getUserObject<LevelSetContactor>("contactor")),
     _nodal_area(getUserObject<NodalArea>("nodal_area")),
     _direction(getParam<Point>("direction")),
-    _kss_stiffness(getParam<Real>("kss_stiffness")),
+    _kss_stiffness_constant(getParam<Real>("kss_stiffness")),
+    _kss_stiffness_function(isParamValid("kss_stiffness_function")
+                                ? &getFunction("kss_stiffness_function")
+                                : nullptr),
     _axis(libMesh::invalid_uint),
     _c(getParam<Real>("c")),
     _lm_var_num(coupled("lm_variable")),
@@ -111,6 +125,11 @@ RigidBodyLoadControl::RigidBodyLoadControl(const InputParameters & parameters)
     _s_pin(getParam<Real>("s_pin")),
     _cached_reaction_minus_F(0.0)
 {
+  if (_kss_stiffness_function && isParamSetByUser("kss_stiffness"))
+    paramError("kss_stiffness_function",
+               "Set exactly one of `kss_stiffness` (constant) or "
+               "`kss_stiffness_function` (function of time), not both.");
+
   const Real n = _direction.norm();
   if (n < TOLERANCE)
     paramError("direction", "Must be a nonzero vector.");
@@ -321,7 +340,8 @@ RigidBodyLoadControl::computeJacobian()
   // keeps the shift constant across Newton iterations so gap/lambda-branch
   // flipping in the min-NCP does not churn the effective diagonal.
   Real kss = 0.0;
-  if (_kss_stiffness > 0.0)
+  const Real kss_stiff = kssStiffness();
+  if (kss_stiff > 0.0)
   {
     Real total_area = 0.0;
     for (const auto k : index_range(_node_ids))
@@ -333,7 +353,7 @@ RigidBodyLoadControl::computeJacobian()
     }
     // _direction(_axis) is +/- 1 exactly (direction was normalized and
     // validated to be axis-aligned in the ctor).
-    kss = _kss_stiffness * total_area * _direction(_axis);
+    kss = kss_stiff * total_area * _direction(_axis);
   }
   prepareMatrixTag(_assembly, _var.number(), _var.number());
   for (const auto i : make_range(_local_ke.m()))
@@ -392,4 +412,16 @@ RigidBodyLoadControl::computeJacobian()
       ke_transpose(i, 0) = -_c * n_dot_axis[accessible_ks[i]];
   if (!lm_dofs.empty())
     addJacobian(_assembly, ke_transpose, lm_dofs, scalar_dofs, lm_var.scalingFactor());
+}
+
+Real
+RigidBodyLoadControl::kssStiffness() const
+{
+  if (_kss_stiffness_function)
+    // Evaluate at the current simulation time.  Point argument is unused for
+    // a time-only PiecewiseLinear/ParsedFunction; passing the origin is a
+    // convention that matches how MOOSE evaluates other time-only functions
+    // for scalar-valued preconditioning knobs.
+    return _kss_stiffness_function->value(_fe_problem.time(), Point());
+  return _kss_stiffness_constant;
 }

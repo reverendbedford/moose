@@ -46,6 +46,11 @@ public:
   virtual ~RigidBodyContactPredictor();
 
   virtual void apply(NumericVector<Number> & sln) override;
+  /// Extends the base `shouldApply` (repeated-timestep skip, `skip_times`
+  /// lists) with a MOOSE-Controls-friendly enable/disable check: when
+  /// `enable = false` (settable at runtime by a `Control`) the predictor is
+  /// skipped entirely.  See the `enable` param in `MooseObject::validParams`.
+  virtual bool shouldApply() override;
 
 private:
   /// Contact sideset(s) — same as the RigidBodyNodalNCPKernel `boundary`.

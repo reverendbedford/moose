@@ -80,6 +80,8 @@ private:
   const FunctionName _force;
   const Point _load_direction;
   const Real _kss_stiffness;
+  /// Empty when the user supplied a constant `kss_stiffness` (default).
+  const FunctionName _kss_stiffness_function;
   /// User-supplied variable-name overrides (may be empty; helpers
   /// provide defaults).
   const std::string _user_lm_name;

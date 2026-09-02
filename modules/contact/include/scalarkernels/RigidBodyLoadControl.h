@@ -95,7 +95,7 @@ public:
   Mode currentMode() const { return _mode; }
 
   /// Signed approximation of `dR_s/ds` suitable for the outer 1D Newton
-  /// step in `UzawaTransient`.  Returns `kss_stiffness * (direction .
+  /// step in `UzawaTransient`.  Returns `kss_stiffness(t) * (direction .
   /// axis_hat)` -- positive when `direction` and `axis_hat` agree
   /// (pushing s up increases reaction, so Newton on `R_s = 0` wants
   /// `ds = -R_s/kss > 0` when reaction < target), negative otherwise.
@@ -105,7 +105,7 @@ public:
   /// an integrated one, and the `max_step` trust region absorbs the
   /// O(1) mismatch.  Sign is what matters most; `kss_stiffness`
   /// magnitude is the user's tuning knob.
-  Real signedKssApprox() const { return _kss_stiffness * _direction(_axis); }
+  Real signedKssApprox() const { return kssStiffness() * _direction(_axis); }
 
 private:
   /// Deformed position of the k-th LM node (undeformed node + displacement).
@@ -128,8 +128,14 @@ private:
   const LevelSetContactor & _contactor;
   const NodalArea & _nodal_area;
   Point _direction;
-  /// Effective contact stiffness (typically the deformable body's Young's
-  /// modulus) used to fabricate a nonzero (scalar_row, scalar_col) Jacobian
+  /// Return the effective contact stiffness at the current simulation time.
+  /// See `_kss_stiffness_constant` / `_kss_stiffness_function` for the
+  /// physical meaning and preconditioning rationale.  Evaluated at (t,
+  /// origin) if a function was supplied; otherwise the constant value.
+  Real kssStiffness() const;
+
+  /// Constant variant of the effective contact stiffness (Young's-modulus
+  /// scale) used to fabricate a nonzero (scalar_row, scalar_col) Jacobian
   /// entry.  The exact `dR_s/ds` is zero in this formulation (F(t) does not
   /// depend on s, and the reaction depends on s only through Kls · Kpp^-1 ·
   /// Ksl, which we don't have in closed form here), so with `Kss=0` the
@@ -139,8 +145,15 @@ private:
   /// modification: the residual is unchanged, so the physical fixed point
   /// (R_s = 0) is unchanged — only the intermediate Newton iterates
   /// differ.  Set to 0 (default) to preserve the original formulation
-  /// exactly.
-  const Real _kss_stiffness;
+  /// exactly.  Mutually exclusive with `_kss_stiffness_function`.
+  const Real _kss_stiffness_constant;
+  /// Function-of-time variant of the same stiffness.  When set, its value
+  /// at (current time, origin) replaces the constant on every Jacobian
+  /// assembly.  Useful when the appropriate preconditioning shift changes
+  /// over the load history -- e.g. much larger during initial impact than
+  /// during a well-established plastic patch.  Nullptr when the user
+  /// supplied a constant `kss_stiffness` instead.
+  const Function * const _kss_stiffness_function;
   /// Cartesian axis index (0=x, 1=y, 2=z) that the contactor's translation
   /// scalar drives.  Determined from `_direction` in the ctor (which
   /// enforces `_direction` to be aligned with a Cartesian axis).  The

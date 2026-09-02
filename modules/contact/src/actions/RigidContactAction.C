@@ -124,10 +124,16 @@ RigidContactAction::validParams()
       "kss_stiffness",
       0.0,
       "kss_stiffness >= 0",
-      "Effective contact stiffness for the (scalar, scalar) Jacobian "
-      "preconditioning shift used by `RigidBodyLoadControl`.  See that "
-      "kernel's own docstring; a sensible value is the deformable body's "
-      "Young's modulus.  Only used when `force` is set.");
+      "Constant scalar variant of the effective contact stiffness for the "
+      "(scalar, scalar) Jacobian preconditioning shift used by "
+      "`RigidBodyLoadControl`.  See that kernel's own docstring; a sensible "
+      "value is the deformable body's Young's modulus.  Only used when "
+      "`force` is set.  Mutually exclusive with `kss_stiffness_function`.");
+  params.addParam<FunctionName>(
+      "kss_stiffness_function",
+      "Function-of-time variant of the effective contact stiffness passed "
+      "through to `RigidBodyLoadControl`.  Only used when `force` is set. "
+      "Mutually exclusive with `kss_stiffness`.");
   params.addParam<std::string>(
       "scalar_variable_name",
       "",
@@ -162,6 +168,9 @@ RigidContactAction::RigidContactAction(const InputParameters & parameters)
     _force(getParam<FunctionName>("force")),
     _load_direction(getParam<Point>("load_direction")),
     _kss_stiffness(getParam<Real>("kss_stiffness")),
+    _kss_stiffness_function(isParamValid("kss_stiffness_function")
+                                ? getParam<FunctionName>("kss_stiffness_function")
+                                : FunctionName()),
     _user_lm_name(getParam<std::string>("lm_variable_name")),
     _user_lower_d_name(getParam<std::string>("lower_d_block_name")),
     _user_scalar_name(getParam<std::string>("scalar_variable_name")),
@@ -171,6 +180,10 @@ RigidContactAction::RigidContactAction(const InputParameters & parameters)
   if (!_force.empty() && _load_direction.norm() < TOLERANCE)
     paramError("load_direction",
                "must be a nonzero axis-aligned unit vector when `force` is set.");
+  if (!_kss_stiffness_function.empty() && isParamSetByUser("kss_stiffness"))
+    paramError("kss_stiffness_function",
+               "Set exactly one of `kss_stiffness` (constant) or "
+               "`kss_stiffness_function` (function of time), not both.");
 }
 
 unsigned int
@@ -431,7 +444,13 @@ RigidContactAction::addScalarKernels()
   params.set<std::vector<VariableName>>("displacements") = _displacements;
   params.set<Point>("direction") = _load_direction;
   params.set<Real>("c") = _c;
-  params.set<Real>("kss_stiffness") = _kss_stiffness;
+  // Pass through exactly one of the two forms.  RigidBodyLoadControl's own
+  // ctor re-validates the mutual-exclusion, but keeping the constant unset
+  // when the user gave a function keeps the passthrough clean.
+  if (!_kss_stiffness_function.empty())
+    params.set<FunctionName>("kss_stiffness_function") = _kss_stiffness_function;
+  else
+    params.set<Real>("kss_stiffness") = _kss_stiffness;
   _problem->addScalarKernel("RigidBodyLoadControl", "rigid_contact_load_control_" + name(), params);
 }
 

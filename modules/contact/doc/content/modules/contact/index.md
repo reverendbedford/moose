@@ -38,6 +38,20 @@ using this approach are summarized in [MortarPerformance](modules/contact/Mortar
 
 
 
+## Rigid-Body Contact
+
+When one body in the contact pair can be idealized as rigid, the contact module provides
+a dedicated formulation that discretizes the rigid body implicitly through a signed-distance
+(level-set) function.  This bypasses the geometric search entirely and reduces the coupled
+system to a pointwise complementarity condition on the deformable side, with optional
+load-control machinery that turns the indenter's translation into a scalar unknown driven
+by a prescribed integrated reaction.  Analytic level-set contactors (spheres) and STL-based
+contactors (arbitrary triangulated surfaces) are both supported.  See the
+[Rigid-Body Contact](modules/contact/rigid_contact/index.md) landing page for an overview,
+theory, worked examples, and syntax details for the `[RigidContact]` block.
+
+
+
 !row!
 !col! small=8 medium=4 large=5 icon=device_hub
 

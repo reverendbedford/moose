@@ -1,12 +1,14 @@
 #!/bin/bash
-# Step 5: install PyTorch (CUDA) and NEML2 into the `moose` conda env.
+# Step 5: install PyTorch (CUDA) and NEML2 into a dedicated venv.
 #
 # NEML2 installs as a Python package (pip). Rather than building libtorch
-# from source (~1-2 hours) or setting up a dedicated venv, we use a
-# dedicated conda env `moose-neml2` (Python 3.13) for python/pip. The
-# separate env exists because the main `moose` env is on Python 3.14, for
-# which CUDA-12.4 torch wheels do not exist and driver 550.x on this box
-# is too old for the CUDA-12.6 wheels that would support 3.14. NEML2's
+# from source (~1-2 hours) or reusing a conda env, we manage a dedicated
+# venv at $STACK_DIR/neml2-venv built off miniforge's BASE python (3.12).
+# The main `moose` conda env is on Python 3.14, but CUDA-12.4 torch wheels
+# stop at Python 3.13, and driver 550.x on this box is too old for the
+# CUDA-12.6 wheels that support 3.14. Miniforge base's 3.12 is the
+# newest Python for which cu124 wheels exist AND is already installed
+# on this box, so no `conda create` or `apt install` is needed. NEML2's
 # C++ artifacts
 # (libneml2*.so) are built with cmake using whatever CC/CXX/FC we hand it,
 # so we pin them to $PREFIX/bin/mpi* (our from-scratch CUDA-aware OpenMPI)
@@ -24,21 +26,30 @@ set -o pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$SCRIPT_DIR/env.sh"
 
-CONDA_NEML2_BIN="/home/chenghau.yang/miniforge/envs/moose-neml2/bin"
-if [ ! -x "$CONDA_NEML2_BIN/python3" ]; then
-  echo "[build_neml2] ERROR: conda 'moose-neml2' env python3 not found at $CONDA_NEML2_BIN/python3" >&2
-  echo "[build_neml2]        Create it first:" >&2
-  echo "[build_neml2]          conda create -y -n moose-neml2 python=3.13 pip" >&2
-  echo "[build_neml2]        Python 3.13 (not 3.14 like the 'moose' env) so CUDA 12.4 torch wheels" >&2
-  echo "[build_neml2]        install cleanly against this box's driver 550.x." >&2
-  exit 1
+NEML2_VENV="$STACK_DIR/neml2-venv"
+NEML2_VENV_BIN="$NEML2_VENV/bin"
+
+# Auto-create the venv on first run. Uses miniforge base's python3 (3.12) as
+# the interpreter -- newest cu124-compatible Python already installed on this
+# box (main `moose` conda env is on 3.14, unusable with cu124 wheels).
+if [ ! -x "$NEML2_VENV_BIN/python3" ]; then
+  MINIFORGE_PYTHON="/home/chenghau.yang/miniforge/bin/python3"
+  if [ ! -x "$MINIFORGE_PYTHON" ]; then
+    echo "[build_neml2] ERROR: miniforge base python not found at $MINIFORGE_PYTHON" >&2
+    echo "[build_neml2]        expected miniforge with a base python; adjust MINIFORGE_PYTHON here" >&2
+    echo "[build_neml2]        or point the venv at any other Python >= 3.9, <= 3.13 interpreter." >&2
+    exit 1
+  fi
+  echo "[build_neml2] creating venv at $NEML2_VENV (from $MINIFORGE_PYTHON, $($MINIFORGE_PYTHON --version 2>&1))"
+  "$MINIFORGE_PYTHON" -m venv "$NEML2_VENV"
 fi
 
-# PATH: $PREFIX/bin first so mpicxx/mpicc/mpif90 are ours (CUDA-aware
-# OpenMPI). Conda moose-neml2 bin next so python3 and pip come from there.
-# env.sh already put $PREFIX/bin and /usr/local/cuda/bin on PATH; we insert
-# the conda bin between them.
-export PATH="$PREFIX/bin:$CONDA_NEML2_BIN:$PATH"
+# PATH: $PREFIX/bin first so mpicxx/mpicc/mpif90 are ours (CUDA-aware OpenMPI).
+# Venv bin next so python3 and pip come from the venv. env.sh already put
+# $PREFIX/bin and /usr/local/cuda/bin on PATH; we insert the venv bin between.
+# VIRTUAL_ENV mirrors what standard `activate` would export (informational).
+export VIRTUAL_ENV="$NEML2_VENV"
+export PATH="$PREFIX/bin:$NEML2_VENV_BIN:$PATH"
 
 # Pin compilers for cmake (scikit-build-core reads CC/CXX/FC). Without this,
 # cmake would fall back to /usr/bin/cc (system gcc), producing a libneml2.so
@@ -70,10 +81,10 @@ fi
 
 # --- 2) PyTorch (CUDA 12.4 wheels) -------------------------------------
 if python3 -c 'import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)' 2>/dev/null; then
-  echo "[build_neml2] PyTorch with CUDA already installed in conda moose-neml2 env:"
+  echo "[build_neml2] PyTorch with CUDA already installed in $NEML2_VENV:"
   python3 -c 'import torch; print(f"    torch={torch.__version__}  cuda={torch.version.cuda}  cuda_available={torch.cuda.is_available()}")'
 else
-  echo "[build_neml2] installing PyTorch (CUDA 12.4 wheels) into conda moose-neml2 env"
+  echo "[build_neml2] installing PyTorch (CUDA 12.4 wheels) into $NEML2_VENV"
   python3 -m pip install --upgrade pip 2>&1 | tee -a "$LOG"
   python3 -m pip install torch --index-url https://download.pytorch.org/whl/cu124 2>&1 | tee -a "$LOG"
   # Verify.
@@ -92,7 +103,7 @@ echo "[build_neml2] ensuring NEML2 Python build deps (scikit-build-core, pybind1
 python3 -m pip install --upgrade scikit-build-core pybind11 2>&1 | tee -a "$LOG"
 
 # --- 4) NEML2 itself ---------------------------------------------------
-echo "[build_neml2] pip-installing NEML2 (via MOOSE's update_and_rebuild_neml2.sh)"
+echo "[build_neml2] pip-installing NEML2 into $NEML2_VENV (via MOOSE's update_and_rebuild_neml2.sh)"
 cd "$MOOSE_DIR"
 scripts/update_and_rebuild_neml2.sh --skip-submodule-update 2>&1 | tee -a "$LOG"
 
@@ -100,5 +111,5 @@ scripts/update_and_rebuild_neml2.sh --skip-submodule-update 2>&1 | tee -a "$LOG"
 NEML2_PKG=$(python3 -c 'import neml2, os; print(os.path.dirname(neml2.__file__))' 2>/dev/null || echo "(not found)")
 echo
 echo "[build_neml2] NEML2 Python package: $NEML2_PKG"
-echo "[build_neml2] NEML2 C++ headers/libs go into the same conda env's include/ and lib/."
+echo "[build_neml2] NEML2 C++ headers/libs go into the same venv's include/ and lib/."
 echo "[build_neml2] build_moose.sh will pick this up automatically when NEML2_SUPPORT=1."

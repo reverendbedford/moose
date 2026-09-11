@@ -4,6 +4,7 @@ prefix/
 src/
 logs/
 libmesh-build/
+neml2-venv/
 
 # One-time transition notes; regenerated on demand.
 RESUME.txt

@@ -54,6 +54,31 @@ protected:
   /// Get the target output device
   const at::Device & output_device() const { return _output_device; }
 
+  /// Set the target output device when the user did not explicitly provide one
+  void setOutputDevice(const at::Device & output_device) const
+  {
+    // An omitted device index selects the current device, so it matches the requested indexed
+    // device
+    const bool same_device =
+        _output_device.type() == output_device.type() &&
+        (!_output_device.has_index() || _output_device.index() == output_device.index());
+    if (this->isParamSetByUser("output_device") && !same_device)
+      this->paramError("output_device",
+                       "The explicitly specified output device ",
+                       _output_device,
+                       " does not match the required output device ",
+                       output_device,
+                       ".");
+    if (_output_device_requested && !same_device)
+      mooseError("NEML2 output consumers require conflicting devices ",
+                 _output_device,
+                 " and ",
+                 output_device,
+                 ". Use separate NEML2 model executors for these consumers.");
+    _output_device = output_device;
+    _output_device_requested = true;
+  }
+
   /// libtorch intra-op thread count to use while evaluating the NEML2 model. Wrap the evaluation
   /// region in `NEML2Utils::ScopedNumThreads guard(neml2NumThreads());` so the count is applied only
   /// during evaluation and the previous value is restored afterward.
@@ -133,7 +158,9 @@ private:
   /// The device on which to evaluate the NEML2 model (this rank's scheduler-assigned device)
   const at::Device _device;
   /// The device on which to store the outputs
-  const at::Device _output_device;
+  mutable at::Device _output_device;
+  /// Whether an output consumer has requested a device
+  mutable bool _output_device_requested;
   /// libtorch intra-op thread count applied (scoped) during model evaluation; defaults to the
   /// MOOSE/libMesh thread count.
   const unsigned int _num_threads;
@@ -200,9 +227,9 @@ NEML2ModelInterface<T>::validParams()
   params.addParam<std::string>(
       "output_device",
       "Device on which to store the model outputs, following the same schema as a single 'device' "
-      "entry. Defaults to cpu, where MOOSE consumes them. Set this only if a downstream object "
-      "needs "
-      "the outputs on a specific device.");
+      "entry. Defaults to cpu, where MOOSE consumes them. If left unset, a device-aware output "
+      "consumer may select its required device. An explicitly specified device must match the "
+      "consumer device.");
   params.addParam<unsigned int>(
       "num_threads",
       "Number of threads to use when evaluating the NEML2 model. Defaults to the number of threads "
@@ -238,6 +265,7 @@ NEML2ModelInterface<T>::NEML2ModelInterface(const InputParameters & params, P &&
     _output_device(params.isParamValid("output_device")
                        ? at::Device(params.get<std::string>("output_device"))
                        : at::Device(at::kCPU)),
+    _output_device_requested(false),
     // Default to the MOOSE/libMesh thread count (--n-threads, i.e. 1 unless set); AOTI graphs get
     // little from intra-op threads and this avoids oversubscribing under MPI. Overridable.
     _num_threads(params.isParamValid("num_threads") ? params.get<unsigned int>("num_threads")

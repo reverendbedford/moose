@@ -10,16 +10,15 @@
 #pragma once
 
 #include "NEML2Utils.h"
+#include "NEML2OutputInterface.h"
 #include "Material.h"
 #include "SymmetricRankTwoTensor.h"
 #include "SymmetricRankFourTensor.h"
 
 // at::Tensor is available via NEML2Utils.h (which includes ATen) when NEML2 is enabled.
 
-class NEML2ModelExecutor;
-
 template <typename T>
-class NEML2ToMOOSEMaterialProperty : public Material
+class NEML2ToMOOSEMaterialProperty : public Material, public NEML2OutputInterface
 {
 public:
   static InputParameters validParams();
@@ -32,17 +31,11 @@ public:
 protected:
   void initQpStatefulProperties() override {}
 
-  /// User object managing the execution of the NEML2 model
-  const NEML2ModelExecutor & _execute_neml2_model;
-
   /// Emitted material property
   MaterialProperty<T> & _prop;
 
   /// Initial condition
   const MaterialProperty<T> * _prop0;
-
-  /// Reference to the requested output (or its derivative) value
-  const at::Tensor & _value;
 #endif
 };
 

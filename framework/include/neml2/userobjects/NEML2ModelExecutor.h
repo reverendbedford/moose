@@ -14,6 +14,7 @@
 #include "NEML2BatchIndexGenerator.h"
 
 class MOOSEToNEML2;
+class NEML2OutputInterface;
 
 /**
  * NEML2ModelExecutor executes a NEML2 model. The NEML2 input variables and model parameters are
@@ -163,6 +164,8 @@ protected:
   mutable std::map<std::string, std::map<std::string, at::Tensor>> _retrieved_parameter_derivatives;
 
 private:
+  friend class NEML2OutputInterface;
+
   /// Whether an error was encountered
   bool _error;
   /// Error message

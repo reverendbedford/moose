@@ -47,4 +47,39 @@
     capabilities = 'libtorch & neml2'
     valgrind = heavy
   []
+  [manage_state_residual_only]
+    requirement = 'The system shall not advance managed NEML2 state during residual-only constitutive evaluations.'
+    type = Exodiff
+    input = 'perfect.i'
+    cli_args = 'NEML2/all/manage_state_advance=true Executioner/solve_type=PJFNK Executioner/residual_and_jacobian_together=false'
+    exodiff = 'perfect_out.e'
+    prereq = manage_state_advance
+    issues = '#27493'
+    capabilities = 'libtorch & neml2'
+    valgrind = heavy
+  []
+  [manage_state_rollback]
+    requirement = 'The system shall discard trial NEML2 state when a failed nonlinear solve is retried with a smaller timestep.'
+    type = Exodiff
+    input = 'perfect_rollback.i'
+    cli_args = 'NEML2/all/manage_state_advance=true'
+    exodiff = 'perfect_out.e'
+    expect_out = 'causing a time step cutback by marking the current step as failed'
+    prereq = manage_state_residual_only
+    issues = '#27493'
+    capabilities = 'libtorch & neml2'
+    valgrind = heavy
+  []
+  [manage_state_mesh_change]
+    requirement = 'The system shall continue a stateful NEML2 simulation after a mesh change rebuilds its batch indices.'
+    type = RunApp
+    input = 'perfect_mesh_change.i'
+    cli_args = 'NEML2/all/manage_state_advance=true NEML2/all/executor_type=TestNEML2ModelExecutor NEML2/moved/manage_state_advance=true NEML2/moved/executor_type=TestNEML2ModelExecutor'
+    expect_out = 'Verified NEML2 state remap with [1-9][0-9]* retained and [1-9][0-9]* initialized state slices'
+    allow_test_objects = true
+    prereq = manage_state_rollback
+    issues = '#27493'
+    capabilities = 'libtorch & neml2'
+    valgrind = heavy
+  []
 []

@@ -173,6 +173,16 @@
     capabilities = 'libtorch & neml2'
     valgrind = heavy
   []
+  [mesh_change_managed_state]
+    requirement = 'The framework shall rebuild NEML2 batches after a mesh change when state advance is managed on the compute device.'
+    type = Exodiff
+    input = 'mesh_change.i'
+    cli_args = 'NEML2/A/manage_state_advance=true NEML2/B/manage_state_advance=true'
+    exodiff = 'mesh_change_out.e mesh_change_out.e-s002 mesh_change_out.e-s003 mesh_change_out.e-s004 mesh_change_out.e-s005'
+    prereq = mesh_change
+    capabilities = 'libtorch & neml2'
+    valgrind = heavy
+  []
   [dump_inputs_on_failure]
     issues = '#30793'
     requirement = 'The framework shall, when a NEML2 constitutive update fails to converge and '

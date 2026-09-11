@@ -1,0 +1,232 @@
+[Tests]
+  issues = '#30655'
+  design = 'KokkosIsotropicElasticity.md KokkosStressDivergence.md KokkosComputeIsotropicElasticity.md NEML2ToKokkosMaterialProperty.md'
+
+  [plane_strain]
+    type = Exodiff
+    input = 'kokkos_linear_elasticity.i'
+    exodiff = 'kokkos_linear_elasticity_out.e'
+    requirement = 'The Kokkos system shall solve Cartesian isotropic small-strain linear elasticity problems.'
+    capabilities = 'kokkos'
+    compute_devices = 'cpu cuda'
+  []
+
+  [jacobian]
+    type = PetscJacobianTester
+    input = 'kokkos_linear_elasticity.i'
+    cli_args = 'Outputs/exodus=false'
+    requirement = 'The Kokkos isotropic elasticity kernel shall provide a consistent coupled Jacobian.'
+    capabilities = 'kokkos'
+    compute_devices = 'cpu cuda'
+  []
+
+  [material_plane_strain]
+    type = Exodiff
+    input = 'kokkos_material_linear_elasticity.i'
+    exodiff = 'kokkos_linear_elasticity_out.e'
+    requirement = 'The Kokkos stress-divergence kernel shall use stress and tangent material properties to solve Cartesian small-strain elasticity problems.'
+    capabilities = 'kokkos'
+    compute_devices = 'cpu cuda'
+  []
+
+  [material_jacobian]
+    type = PetscJacobianTester
+    input = 'kokkos_material_linear_elasticity.i'
+    cli_args = 'Outputs/exodus=false'
+    requirement = 'The material-based Kokkos stress-divergence kernel shall provide a consistent coupled Jacobian.'
+    capabilities = 'kokkos'
+    compute_devices = 'cpu cuda'
+  []
+
+  [neml2_material_plane_strain]
+    type = Exodiff
+    input = 'neml2_kokkos_linear_elasticity.i'
+    exodiff = 'kokkos_linear_elasticity_out.e'
+    requirement = 'The system shall transfer NEML2 symmetric stress and tangent outputs into Kokkos material properties to solve Cartesian plane-strain elasticity problems.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu'
+  []
+
+  [neml2_material_jacobian]
+    type = PetscJacobianTester
+    input = 'neml2_kokkos_linear_elasticity.i'
+    cli_args = 'Outputs/exodus=false'
+    requirement = 'The Kokkos stress-divergence kernel shall provide a consistent coupled Jacobian using a NEML2 stress derivative.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu'
+  []
+
+  [neml2_action_material_plane_strain]
+    type = Exodiff
+    input = 'neml2_action_kokkos_linear_elasticity.i'
+    exodiff = 'neml2_action_kokkos_linear_elasticity_out.e'
+    requirement = 'The NEML2 action shall create Kokkos symmetric stress and tangent material properties for Cartesian plane-strain elasticity problems when requested.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu'
+  []
+
+  [neml2_action_material_jacobian]
+    type = PetscJacobianTester
+    input = 'neml2_action_kokkos_linear_elasticity.i'
+    cli_args = 'Outputs/exodus=false'
+    requirement = 'The Kokkos output backend of the NEML2 action shall provide a consistent coupled Jacobian from a requested NEML2 stress derivative.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu'
+  []
+
+  [direct_3d]
+    type = Exodiff
+    input = 'kokkos_linear_elasticity_3d.i'
+    exodiff = 'kokkos_linear_elasticity_3d_out.e'
+    requirement = 'The Kokkos system shall solve three-dimensional isotropic small-strain linear elasticity problems.'
+    capabilities = 'kokkos'
+    compute_devices = 'cpu cuda'
+  []
+
+  [direct_3d_jacobian]
+    type = PetscJacobianTester
+    input = 'kokkos_linear_elasticity_3d.i'
+    cli_args = 'Outputs/exodus=false'
+    requirement = 'The three-dimensional Kokkos isotropic elasticity kernels shall provide a consistent coupled Jacobian.'
+    capabilities = 'kokkos'
+    compute_devices = 'cpu cuda'
+  []
+
+  [material_3d]
+    type = Exodiff
+    input = 'kokkos_material_linear_elasticity_3d.i'
+    exodiff = 'kokkos_material_linear_elasticity_3d_out.e'
+    requirement = 'The material-based Kokkos stress-divergence kernels shall match the direct Kokkos solution for a three-dimensional isotropic small-strain linear elasticity problem.'
+    capabilities = 'kokkos'
+    compute_devices = 'cpu cuda'
+  []
+
+  [material_3d_jacobian]
+    type = PetscJacobianTester
+    input = 'kokkos_material_linear_elasticity_3d.i'
+    cli_args = 'Outputs/exodus=false'
+    requirement = 'The three-dimensional material-based Kokkos stress-divergence kernels shall provide a consistent coupled Jacobian.'
+    capabilities = 'kokkos'
+    compute_devices = 'cpu cuda'
+  []
+
+  [neml2_material_3d]
+    type = Exodiff
+    input = 'neml2_kokkos_linear_elasticity_3d.i'
+    exodiff = 'neml2_kokkos_linear_elasticity_3d_out.e'
+    requirement = 'The system shall match the direct Kokkos solution when transferring three-dimensional NEML2 stress and tangent outputs into Kokkos material properties.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu'
+  []
+
+  [neml2_material_3d_jacobian]
+    type = PetscJacobianTester
+    input = 'neml2_kokkos_linear_elasticity_3d.i'
+    cli_args = 'Outputs/exodus=false'
+    requirement = 'The three-dimensional Kokkos stress-divergence kernels shall provide a consistent coupled Jacobian using a NEML2 stress derivative.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu'
+  []
+
+  [neml2_perfect_plasticity]
+    type = Exodiff
+    input = 'neml2_kokkos_perfect_plasticity.i'
+    cli_args = 'NEML2/all/executor_type=TestNEML2ModelExecutor Outputs/file_base=perfect_out'
+    exodiff = 'perfect_out.e'
+    gold_dir = '../../neml2/plasticity/gold'
+    expect_out = 'NEML2 model was evaluated once in this executor dispatch'
+    requirement = 'The system shall match the CPU NEML2 solution for a three-dimensional perfect-plasticity problem using managed state and Kokkos stress-divergence kernels.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu'
+    allow_test_objects = true
+  []
+
+  [neml2_isotropic_hardening]
+    type = Exodiff
+    input = 'neml2_kokkos_perfect_plasticity.i'
+    cli_args = "NEML2/input='../../neml2/plasticity/isoharden_neml2.i' NEML2/all/executor_type=TestNEML2ModelExecutor Outputs/file_base=isoharden_out"
+    exodiff = 'isoharden_out.e'
+    gold_dir = '../../neml2/plasticity/gold'
+    expect_out = 'NEML2 model was evaluated once in this executor dispatch'
+    requirement = 'The system shall match the CPU NEML2 solution for a three-dimensional isotropic-hardening problem using managed tensor and scalar state with Kokkos stress-divergence kernels.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu'
+    allow_test_objects = true
+  []
+
+  [neml2_isotropic_hardening_combined]
+    type = Exodiff
+    input = 'neml2_kokkos_perfect_plasticity.i'
+    cli_args = "NEML2/input='../../neml2/plasticity/isoharden_neml2.i' NEML2/all/executor_type=TestNEML2ModelExecutor Executioner/residual_and_jacobian_together=true Outputs/file_base=isoharden_out"
+    exodiff = 'isoharden_out.e'
+    gold_dir = '../../neml2/plasticity/gold'
+    expect_out = 'NEML2 model was evaluated once in this executor dispatch'
+    requirement = 'The system shall produce the same nonlinear isotropic-hardening solution when residuals and Jacobians are assembled together while evaluating the shared NEML2 model once per executor dispatch.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu'
+    allow_test_objects = true
+  []
+
+  [neml2_state_rollback]
+    type = Exodiff
+    input = 'neml2_kokkos_perfect_plasticity_rollback.i'
+    cli_args = 'NEML2/all/executor_type=TestNEML2ModelExecutor Outputs/file_base=perfect_out'
+    exodiff = 'perfect_out.e'
+    gold_dir = '../../neml2/plasticity/gold'
+    expect_out = 'causing a time step cutback by marking the current step as failed'
+    requirement = 'The Kokkos-integrated system shall discard trial NEML2 state after a failed nonlinear solve, cut back the timestep, and recover the accepted perfect-plasticity solution.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu'
+    allow_test_objects = true
+  []
+
+  [neml2_single_evaluation]
+    type = RunApp
+    input = 'neml2_kokkos_linear_elasticity.i'
+    cli_args = 'NEML2/all/executor_type=TestNEML2ModelExecutor Outputs/exodus=false'
+    expect_out = 'NEML2 model was evaluated once in this executor dispatch'
+    requirement = 'The system shall evaluate a shared NEML2 model at most once per executor dispatch when stress and tangent consumers serve multiple displacement kernels.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu'
+    allow_test_objects = true
+  []
+
+  [neml2_cuda_material_plane_strain]
+    type = Exodiff
+    input = 'neml2_kokkos_linear_elasticity.i'
+    exodiff = 'kokkos_linear_elasticity_out.e'
+    requirement = 'The system shall automatically keep NEML2 symmetric stress and tangent outputs on the CUDA device used by Kokkos material properties.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cuda'
+  []
+
+  [neml2_cpu_output_device_mismatch]
+    type = RunException
+    input = 'neml2_kokkos_linear_elasticity.i'
+    cli_args = 'NEML2/output_device=cuda'
+    expect_err = 'The explicitly specified output device cuda does not match the required output device cpu'
+    requirement = 'The system shall reject a CUDA NEML2 output device explicitly selected for CPU Kokkos material properties.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu'
+  []
+
+  [neml2_cuda_output_device_mismatch]
+    type = RunException
+    input = 'neml2_kokkos_linear_elasticity.i'
+    cli_args = 'NEML2/output_device=cpu'
+    expect_err = 'The explicitly specified output device cpu does not match the required output device cuda'
+    requirement = 'The system shall reject a CPU NEML2 output device explicitly selected for CUDA Kokkos material properties.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cuda'
+  []
+
+  [neml2_cuda_compute_device_mismatch]
+    type = RunException
+    input = 'neml2_kokkos_linear_elasticity.i'
+    cli_args = 'NEML2/device=cpu'
+    expect_err = 'The NEML2 model compute device cpu does not match the Kokkos device cuda'
+    requirement = 'The system shall reject CPU NEML2 model computation for CUDA Kokkos material properties.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cuda'
+  []
+[]

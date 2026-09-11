@@ -26,6 +26,8 @@ public:
 
   TorchPreKernel(const InputParameters & parameters);
 
+  void initialize() override;
+
   at::Tensor gatheredData() const override { return _output; }
 };
 

@@ -32,4 +32,10 @@ TorchPreKernel::TorchPreKernel(const InputParameters & parameters)
     paramError("to_neml2", "TorchPreKernel name must match to_neml2.");
 }
 
+void
+TorchPreKernel::initialize()
+{
+  _fe.invalidateInterpolations();
+}
+
 #endif // NEML2_ENABLED

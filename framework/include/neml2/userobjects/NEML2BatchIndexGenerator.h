@@ -37,8 +37,14 @@ public:
   /// Get the batch index for the given element ID
   std::size_t getBatchIndex(dof_id_type elem_id) const;
 
+  /// Get the element-to-batch-index map
+  const std::map<dof_id_type, std::size_t> & getBatchIndexMap() const;
+
   /// Whether the batch is empty
   bool isEmpty() const { return _batch_index == 0; }
+
+  /// Whether the element-to-batch-index map must be regenerated
+  bool isOutdated() const { return _outdated; }
 
 protected:
   /// Whether the batch index map is outdated

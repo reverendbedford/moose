@@ -81,6 +81,12 @@ NEML2BatchIndexGenerator::finalize()
   _outdated = false;
 }
 
+const std::map<dof_id_type, std::size_t> &
+NEML2BatchIndexGenerator::getBatchIndexMap() const
+{
+  return _elem_to_batch_index;
+}
+
 std::size_t
 NEML2BatchIndexGenerator::getBatchIndex(dof_id_type elem_id) const
 {

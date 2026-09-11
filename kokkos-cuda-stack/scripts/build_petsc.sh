@@ -28,11 +28,13 @@ echo "[build_petsc] logging to $LOG"
 # env.sh sets PETSC_DIR="$PREFIX" and PETSC_ARCH="" for USING the installed
 # PETSc. Both values are wrong for a source build: PETSc's configure requires
 # PETSC_DIR to equal the source directory it is being configured from, and
-# it needs a non-empty PETSC_ARCH so its Makefile has somewhere to place
-# object files. Override both here; the subshell exit restores env.sh's
-# USE-side values for downstream build_*.sh scripts.
+# it explicitly refuses an EMPTY PETSC_ARCH ("PETSC_ARCH cannot be empty
+# string. Use a valid string or do not set one"). Override both to build
+# values here; the subshell exit restores env.sh's USE-side values for
+# downstream build_*.sh scripts.
 export PETSC_DIR="$PETSC_SRC_DIR"
 BUILD_ARCH=arch-scratch-cuda
+export PETSC_ARCH="$BUILD_ARCH"
 
 # Fresh arch dir every run.
 rm -rf "$PETSC_SRC_DIR/$BUILD_ARCH"

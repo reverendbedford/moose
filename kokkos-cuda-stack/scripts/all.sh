@@ -55,12 +55,17 @@ fi
 
 # --- Submodule init ------------------------------------------------------
 # petsc / libmesh / wasp are regular submodules (update=checkout). neml2 is
-# marked `update = none` in .gitmodules so it needs an explicit init when
-# NEML2 is on. Cheap when submodules already up-to-date.
+# marked `update = none` in .gitmodules so a plain `git submodule update
+# --init` silently skips it ("Skipping submodule 'framework/contrib/neml2'").
+# Override the update strategy for neml2 only, for this invocation only.
 SUBS="petsc libmesh framework/contrib/wasp"
-[ "$WITH_NEML2" = 1 ] && SUBS="$SUBS framework/contrib/neml2"
+GIT_ARGS=()
+if [ "$WITH_NEML2" = 1 ]; then
+  SUBS="$SUBS framework/contrib/neml2"
+  GIT_ARGS+=(-c submodule."framework/contrib/neml2".update=checkout)
+fi
 echo "[all.sh] git submodule update --init --recursive $SUBS"
-git -C "$MOOSE_DIR" submodule update --init --recursive $SUBS
+git -C "$MOOSE_DIR" "${GIT_ARGS[@]}" submodule update --init --recursive $SUBS
 
 script_for() {
   case "$1" in

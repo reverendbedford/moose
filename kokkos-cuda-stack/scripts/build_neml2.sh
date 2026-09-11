@@ -2,8 +2,12 @@
 # Step 5: install PyTorch (CUDA) and NEML2 into the `moose` conda env.
 #
 # NEML2 installs as a Python package (pip). Rather than building libtorch
-# from source (~1-2 hours) or setting up a dedicated venv, we use the
-# existing `moose` conda env for python/pip. NEML2's C++ artifacts
+# from source (~1-2 hours) or setting up a dedicated venv, we use a
+# dedicated conda env `moose-neml2` (Python 3.13) for python/pip. The
+# separate env exists because the main `moose` env is on Python 3.14, for
+# which CUDA-12.4 torch wheels do not exist and driver 550.x on this box
+# is too old for the CUDA-12.6 wheels that would support 3.14. NEML2's
+# C++ artifacts
 # (libneml2*.so) are built with cmake using whatever CC/CXX/FC we hand it,
 # so we pin them to $PREFIX/bin/mpi* (our from-scratch CUDA-aware OpenMPI)
 # to guarantee ABI/MPI compatibility with MOOSE's solid_mechanics-opt.
@@ -20,18 +24,21 @@ set -o pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$SCRIPT_DIR/env.sh"
 
-CONDA_MOOSE_BIN="/home/chenghau.yang/miniforge/envs/moose/bin"
-if [ ! -x "$CONDA_MOOSE_BIN/python3" ]; then
-  echo "[build_neml2] ERROR: conda 'moose' env python3 not found at $CONDA_MOOSE_BIN/python3" >&2
-  echo "[build_neml2]        expected a miniforge/miniconda env named 'moose' with python3." >&2
+CONDA_NEML2_BIN="/home/chenghau.yang/miniforge/envs/moose-neml2/bin"
+if [ ! -x "$CONDA_NEML2_BIN/python3" ]; then
+  echo "[build_neml2] ERROR: conda 'moose-neml2' env python3 not found at $CONDA_NEML2_BIN/python3" >&2
+  echo "[build_neml2]        Create it first:" >&2
+  echo "[build_neml2]          conda create -y -n moose-neml2 python=3.13 pip" >&2
+  echo "[build_neml2]        Python 3.13 (not 3.14 like the 'moose' env) so CUDA 12.4 torch wheels" >&2
+  echo "[build_neml2]        install cleanly against this box's driver 550.x." >&2
   exit 1
 fi
 
 # PATH: $PREFIX/bin first so mpicxx/mpicc/mpif90 are ours (CUDA-aware
-# OpenMPI). Conda moose bin next so python3 and pip come from there. env.sh
-# already put $PREFIX/bin and /usr/local/cuda/bin on PATH; we insert the
-# conda bin between them.
-export PATH="$PREFIX/bin:$CONDA_MOOSE_BIN:$PATH"
+# OpenMPI). Conda moose-neml2 bin next so python3 and pip come from there.
+# env.sh already put $PREFIX/bin and /usr/local/cuda/bin on PATH; we insert
+# the conda bin between them.
+export PATH="$PREFIX/bin:$CONDA_NEML2_BIN:$PATH"
 
 # Pin compilers for cmake (scikit-build-core reads CC/CXX/FC). Without this,
 # cmake would fall back to /usr/bin/cc (system gcc), producing a libneml2.so
@@ -49,20 +56,24 @@ echo "[build_neml2] mpicxx  -> $(command -v mpicxx)"
 echo "[build_neml2] CC/CXX/FC pinned to \$PREFIX/bin/mpi*"
 
 # --- 1) NEML2 submodule ------------------------------------------------
-# MOOSE .gitmodules marks framework/contrib/neml2 with `update = none`, so
-# a plain `git submodule update` skips it. Force-init on demand.
+# MOOSE .gitmodules marks framework/contrib/neml2 with `update = none`, which
+# even a plain `git submodule update --init` respects (silent skip -- would
+# show "Skipping submodule 'framework/contrib/neml2'"). Override the update
+# strategy with -c submodule.<path>.update=checkout for this invocation only.
 NEML2_SRC="$MOOSE_DIR/framework/contrib/neml2"
 if [ ! -f "$NEML2_SRC/CMakeLists.txt" ]; then
-  echo "[build_neml2] initializing framework/contrib/neml2 submodule"
-  git -C "$MOOSE_DIR" submodule update --init --recursive framework/contrib/neml2 2>&1 | tee -a "$LOG"
+  echo "[build_neml2] initializing framework/contrib/neml2 submodule (overriding update=none)"
+  git -C "$MOOSE_DIR" \
+      -c submodule."framework/contrib/neml2".update=checkout \
+      submodule update --init --recursive framework/contrib/neml2 2>&1 | tee -a "$LOG"
 fi
 
 # --- 2) PyTorch (CUDA 12.4 wheels) -------------------------------------
 if python3 -c 'import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)' 2>/dev/null; then
-  echo "[build_neml2] PyTorch with CUDA already installed in conda moose env:"
+  echo "[build_neml2] PyTorch with CUDA already installed in conda moose-neml2 env:"
   python3 -c 'import torch; print(f"    torch={torch.__version__}  cuda={torch.version.cuda}  cuda_available={torch.cuda.is_available()}")'
 else
-  echo "[build_neml2] installing PyTorch (CUDA 12.4 wheels) into conda moose env"
+  echo "[build_neml2] installing PyTorch (CUDA 12.4 wheels) into conda moose-neml2 env"
   python3 -m pip install --upgrade pip 2>&1 | tee -a "$LOG"
   python3 -m pip install torch --index-url https://download.pytorch.org/whl/cu124 2>&1 | tee -a "$LOG"
   # Verify.

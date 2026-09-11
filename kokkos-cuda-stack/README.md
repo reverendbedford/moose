@@ -186,7 +186,7 @@ There are four ways to compile, from incremental to full-stack:
 | 1 | `. env.sh` + `make -j` in `framework/` or `modules/*/` | Only MOOSE source you edited | seconds-minutes | Everyday work: you edited a `.C`/`.h` |
 | 1b | `. env.sh` + `make clean && make -j` in the same dir | Everything in that dir (framework or module) | ~10 min | After a `git pull` that touches many MOOSE files, or after re-running `./configure` |
 | 2 | `scripts/build_moose.sh` | All of MOOSE + reruns `./configure --with-kokkos=cuda [--with-neml2]` + `make clean framework/` | ~10 min | You switched compute-device (`cpu` <-> `cuda`), or the Kokkos/NEML2 configure got out of sync |
-| 2n | `scripts/build_neml2.sh` | Reinstalls PyTorch (if needed) + NEML2 into conda moose env | ~10-30 min | NEML2 source changed, or PyTorch missing/wrong-CUDA |
+| 2n | `scripts/build_neml2.sh` | Reinstalls PyTorch (if needed) + NEML2 into conda moose-neml2 env | ~10-30 min | NEML2 source changed, or PyTorch missing/wrong-CUDA |
 | 3 | `scripts/all.sh` (or `scripts/all.sh --no-neml2`) | Everything: submodules + OpenMPI + PETSc + libmesh + WASP + [NEML2] + MOOSE | ~1.5-2 h | Dependency version bump, dep install got corrupted, or first-time setup on a new machine |
 
 Rule of thumb: default to (1). If MOOSE build fails weirdly, try (2). Reach
@@ -205,12 +205,23 @@ build fails with `libmesh-config: not found`.
 
 NEML2 provides the GPU-side material update path on this branch. It links
 against PyTorch and installs as a Python package. Layout choice on this
-box: PyTorch + NEML2 live in the existing `moose` **conda env**
-(`/home/chenghau.yang/miniforge/envs/moose`); PETSc / libmesh / WASP /
-OpenMPI / MOOSE stay in the from-scratch stack. `build_moose.sh` and
-`build_neml2.sh` prepend the conda env `bin/` to `PATH` *after*
-`$PREFIX/bin`, so `mpicxx` remains ours (CUDA-aware OpenMPI) while
-`python3` comes from the conda env (has NEML2 installed).
+box: PyTorch + NEML2 live in a dedicated `moose-neml2` **conda env**
+(`/home/chenghau.yang/miniforge/envs/moose-neml2`, Python 3.13); PETSc /
+libmesh / WASP / OpenMPI / MOOSE stay in the from-scratch stack.
+`build_moose.sh` and `build_neml2.sh` prepend the conda env `bin/` to
+`PATH` *after* `$PREFIX/bin`, so `mpicxx` remains ours (CUDA-aware
+OpenMPI) while `python3` comes from the moose-neml2 env (has NEML2
+installed).
+
+The env is separate from the main `moose` conda env because that env is on
+Python 3.14, and PyTorch's CUDA 12.4 wheels (the highest CUDA our driver
+550.x supports) stop at Python 3.13. Create the env once with:
+
+```bash
+conda create -y -n moose-neml2 python=3.13 pip
+```
+
+`build_neml2.sh` then installs torch + NEML2 into it.
 
 Compilers for cmake: `build_neml2.sh` pins `CC=$PREFIX/bin/mpicc`,
 `CXX=$PREFIX/bin/mpicxx`, `FC=$PREFIX/bin/mpif90` before invoking pip so

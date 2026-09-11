@@ -99,8 +99,11 @@ fi
 # --- 3) NEML2 Python build backends ------------------------------------
 # update_and_rebuild_neml2.sh checks for these but never installs them
 # (--no-deps is used to protect the pinned torch). Install upfront.
-echo "[build_neml2] ensuring NEML2 Python build deps (scikit-build-core, pybind11)"
-python3 -m pip install --upgrade scikit-build-core pybind11 2>&1 | tee -a "$LOG"
+# ninja: scikit-build-core defaults to the Ninja generator; without it,
+# the wheel build aborts with NinjaNotFoundError. The `ninja` PyPI package
+# ships a bundled ninja binary in the venv -- avoids apt install ninja-build.
+echo "[build_neml2] ensuring NEML2 Python build deps (scikit-build-core, pybind11, ninja)"
+python3 -m pip install --upgrade scikit-build-core pybind11 ninja 2>&1 | tee -a "$LOG"
 
 # --- 4) NEML2 itself ---------------------------------------------------
 echo "[build_neml2] pip-installing NEML2 into $NEML2_VENV (via MOOSE's update_and_rebuild_neml2.sh)"

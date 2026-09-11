@@ -1,6 +1,16 @@
 #!/bin/bash
-# Step 3: reconfigure MOOSE with --with-kokkos=cuda pointing at the new PETSc+libmesh,
-# clean framework, rebuild framework + solid_mechanics.
+# Step 6: reconfigure MOOSE with --with-kokkos=cuda pointing at the installed
+# PETSc+libmesh+WASP, optionally --with-neml2, clean framework, rebuild
+# framework + solid_mechanics, capability-check.
+#
+# NEML2 support: controlled by NEML2_SUPPORT (default 1). When 1, the conda
+# `moose` env bin is prepended AFTER $PREFIX/bin so:
+#   - mpicxx / mpicc / mpif90 stay ours (CUDA-aware, first on PATH)
+#   - python3 resolves to conda env's Python, so ./configure's
+#     `python3 -c "import neml2"` auto-detect succeeds
+# The corresponding NEML2 install is done by build_neml2.sh. If NEML2_SUPPORT=1
+# but conda's python3 cannot `import neml2`, this script aborts with a clear
+# hint rather than silently building without NEML2.
 set -e
 set -o pipefail
 
@@ -10,12 +20,28 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 LOG="$LOGS/moose-$(date +%Y%m%d-%H%M%S).log"
 echo "[build_moose] logging to $LOG"
 
-export PETSC_DIR="$PREFIX"
-export PETSC_ARCH=""
-export LIBMESH_DIR="$PREFIX"
+CONFIGURE_ARGS=(--with-kokkos=cuda)
+
+if [ "${NEML2_SUPPORT:-1}" = "1" ]; then
+  CONDA_MOOSE_BIN="/home/chenghau.yang/miniforge/envs/moose/bin"
+  if [ ! -x "$CONDA_MOOSE_BIN/python3" ]; then
+    echo "[build_moose] ERROR: NEML2_SUPPORT=1 but conda moose env python3 missing at $CONDA_MOOSE_BIN" >&2
+    exit 1
+  fi
+  export PATH="$PREFIX/bin:$CONDA_MOOSE_BIN:$PATH"
+  if ! "$CONDA_MOOSE_BIN/python3" -c 'import neml2' 2>/dev/null; then
+    echo "[build_moose] ERROR: NEML2_SUPPORT=1 but 'import neml2' fails in conda moose env." >&2
+    echo "[build_moose]        run: $SCRIPT_DIR/build_neml2.sh   (or export NEML2_SUPPORT=0 to build without NEML2)" >&2
+    exit 1
+  fi
+  CONFIGURE_ARGS+=(--with-neml2)
+  echo "[build_moose] NEML2 support enabled (conda moose python3 has neml2 installed)"
+else
+  echo "[build_moose] NEML2 support disabled (NEML2_SUPPORT=$NEML2_SUPPORT)"
+fi
 
 cd "$MOOSE_DIR"
-./configure --with-kokkos=cuda 2>&1 | tee "$LOG"
+./configure "${CONFIGURE_ARGS[@]}" 2>&1 | tee "$LOG"
 
 # stale headers/lib metadata will confuse the framework build after configure change.
 cd "$MOOSE_DIR/framework"
@@ -33,4 +59,5 @@ import json
 d = json.load(open('/tmp/cap.json'))
 print(f\"kokkos.value = {d.get('kokkos',{}).get('value')}\")
 print(f\"cuda.value   = {d.get('cuda',{}).get('value')}\")
+print(f\"neml2.value  = {d.get('neml2',{}).get('value')}\")
 "

@@ -8,8 +8,13 @@
 #   petsc     ~40 min  (always rebuilds; wipes $PETSC_ARCH first)
 #   libmesh   ~20 min  (always rebuilds)
 #   wasp      ~5 min
+#   neml2     ~10-30 min (installs CUDA torch + NEML2 into conda moose env)
 #   moose     ~10 min
 #   benchmark ~15 min
+#
+# Flags:
+#   --no-neml2   skip the neml2 step and configure MOOSE without --with-neml2.
+#                Default: NEML2 is installed and enabled.
 #
 # Resume policy: if a step fails, do NOT re-run all.sh from scratch (that
 # throws away all successful earlier steps -- notably a 40 min PETSc build).
@@ -22,7 +27,40 @@ set -o pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$SCRIPT_DIR/env.sh" >/dev/null
 
-STEPS=(openmpi petsc libmesh wasp moose benchmark)
+# --- Flag parsing --------------------------------------------------------
+WITH_NEML2=1
+for arg in "$@"; do
+  case "$arg" in
+    --no-neml2) WITH_NEML2=0 ;;
+    -h|--help)
+      cat <<HELP
+Usage: $0 [--no-neml2]
+
+  --no-neml2   Skip NEML2 install; configure MOOSE without --with-neml2.
+               Default: NEML2 is installed and enabled.
+HELP
+      exit 0 ;;
+    *) echo "$0: unknown flag: $arg (use --help)" >&2; exit 1 ;;
+  esac
+done
+
+# Passed to build_moose.sh so its ./configure line matches what we built.
+export NEML2_SUPPORT=$WITH_NEML2
+
+if [ "$WITH_NEML2" = 1 ]; then
+  STEPS=(openmpi petsc libmesh wasp neml2 moose benchmark)
+else
+  STEPS=(openmpi petsc libmesh wasp moose benchmark)
+fi
+
+# --- Submodule init ------------------------------------------------------
+# petsc / libmesh / wasp are regular submodules (update=checkout). neml2 is
+# marked `update = none` in .gitmodules so it needs an explicit init when
+# NEML2 is on. Cheap when submodules already up-to-date.
+SUBS="petsc libmesh framework/contrib/wasp"
+[ "$WITH_NEML2" = 1 ] && SUBS="$SUBS framework/contrib/neml2"
+echo "[all.sh] git submodule update --init --recursive $SUBS"
+git -C "$MOOSE_DIR" submodule update --init --recursive $SUBS
 
 script_for() {
   case "$1" in
@@ -51,6 +89,7 @@ cat <<EOF
   CUDA_DIR   : $CUDA_DIR
   MOOSE_JOBS : $MOOSE_JOBS
   LOGS       : $LOGS
+  NEML2      : $([ "$WITH_NEML2" = 1 ] && echo "on (conda moose env)" || echo "off (--no-neml2)")
   Steps      : ${STEPS[*]}
 =============================================================================
 EOF
@@ -99,15 +138,22 @@ echo "==========================================================================
 EXE="$MOOSE_DIR/modules/solid_mechanics/solid_mechanics-opt"
 if [ -x "$EXE" ]; then
   "$EXE" --show-capabilities 2>/dev/null | tail -n +2 | head -n -1 > /tmp/all-cap.json
-  python3 - <<PY
-import json, sys
+  WITH_NEML2=$WITH_NEML2 python3 - <<'PY'
+import json, os, sys
 try:
     d = json.load(open('/tmp/all-cap.json'))
-    print(f"  kokkos.value = {d.get('kokkos', {}).get('value')}")
-    print(f"  cuda.value   = {d.get('cuda',   {}).get('value')}")
-    ok = d.get('kokkos', {}).get('value') and d.get('kokkos', {}).get('value') != 'false' \
-         and d.get('cuda', {}).get('value') and d.get('cuda', {}).get('value') != 'false'
-    print(f"  status       = {'OK -- stack is Kokkos+CUDA capable' if ok else 'FAILED -- check --show-capabilities'}")
+    def v(name): return d.get(name, {}).get('value')
+    print(f"  kokkos.value = {v('kokkos')}")
+    print(f"  cuda.value   = {v('cuda')}")
+    want_neml2 = os.environ.get('WITH_NEML2', '1') == '1'
+    if want_neml2:
+        print(f"  neml2.value  = {v('neml2')}")
+    ok = v('kokkos') and v('kokkos') != 'false' \
+         and v('cuda')   and v('cuda')   != 'false'
+    if want_neml2:
+        ok = ok and v('neml2') and v('neml2') != 'false'
+    caps = 'Kokkos+CUDA' + ('+NEML2' if want_neml2 else '')
+    print(f"  status       = {'OK -- stack is ' + caps + ' capable' if ok else 'FAILED -- check --show-capabilities'}")
 except Exception as e:
     print(f"  (capability parse failed: {e})", file=sys.stderr)
 PY

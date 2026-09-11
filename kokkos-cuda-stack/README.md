@@ -33,13 +33,15 @@ moose-kokkos/
     .gitignore         <-- ignores prefix/, src/, logs/       [tracked]
     scripts/                                                  [tracked]
       env.sh              <-- clean toolchain env; source, do not execute
-      build_openmpi.sh    <-- CUDA-aware OpenMPI 4.1.6 into $PREFIX/bin (idempotent)
+      activate.sh         <-- daily use / direnv; light-weight USE vars, no purge
+      build_openmpi.sh    <-- CUDA-aware OpenMPI 4.1.6 into $PREFIX/bin (idempotent, self-heals moved installs)
       build_petsc.sh      <-- PETSc 3.25.4 with Kokkos + CUDA
       build_libmesh.sh    <-- libmesh (all four methods: opt, oprof, devel, dbg)
       build_wasp.sh       <-- WASP (MOOSE's HIT parser dependency)
-      build_moose.sh      <-- configure MOOSE, clean framework, rebuild framework + solid_mechanics
+      build_neml2.sh      <-- PyTorch (CUDA 12.4) + NEML2 into conda `moose` env (branch-specific)
+      build_moose.sh      <-- configure MOOSE (--with-kokkos=cuda [--with-neml2]), rebuild framework + solid_mechanics
       run_benchmark.sh    <-- optional: run mesh-scaling benchmark
-      all.sh              <-- run build_openmpi -> petsc -> libmesh -> wasp -> moose -> benchmark
+      all.sh              <-- init submodules -> openmpi -> petsc -> libmesh -> wasp -> [neml2] -> moose -> benchmark
     prefix/            <-- install prefix ($PREFIX)           [gitignored]
     src/               <-- OpenMPI source + build tree        [gitignored]
     logs/              <-- build logs                         [gitignored]
@@ -129,9 +131,12 @@ nothing shadows PETSc's `arch-*/externalpackages`.
 /home/chenghau.yang/packages/moose-kokkos/kokkos-cuda-stack/scripts/all.sh
 ```
 
-`all.sh` sources `env.sh` and runs, in order: `build_openmpi.sh` (idempotent -
-skips if `$PREFIX/bin/ompi_info` already reports CUDA support), `build_petsc.sh`,
-`build_libmesh.sh`, `build_wasp.sh`, `build_moose.sh`, `run_benchmark.sh`.
+`all.sh` sources `env.sh`, then runs (in order): `git submodule update --init`
+for petsc/libmesh/wasp[+neml2]; `build_openmpi.sh` (idempotent - skips if
+`$PREFIX/bin/ompi_info` already reports CUDA support at the current prefix);
+`build_petsc.sh`; `build_libmesh.sh`; `build_wasp.sh`; `build_neml2.sh` (only
+when NEML2 is on); `build_moose.sh`; `run_benchmark.sh`. NEML2 is on by
+default; pass `--no-neml2` to skip it.
 
 `env.sh` erases every environment variable not on a small whitelist because
 conda's activation stamps many build-hint vars (`build_alias`,
@@ -180,12 +185,14 @@ There are four ways to compile, from incremental to full-stack:
 |---|---|---|---|---|
 | 1 | `. env.sh` + `make -j` in `framework/` or `modules/*/` | Only MOOSE source you edited | seconds-minutes | Everyday work: you edited a `.C`/`.h` |
 | 1b | `. env.sh` + `make clean && make -j` in the same dir | Everything in that dir (framework or module) | ~10 min | After a `git pull` that touches many MOOSE files, or after re-running `./configure` |
-| 2 | `scripts/build_moose.sh` | All of MOOSE + reruns `./configure --with-kokkos=cuda` + `make clean framework/` | ~10 min | You switched compute-device (`cpu` <-> `cuda`), or the Kokkos configure got out of sync |
-| 3 | `scripts/all.sh` | Everything: OpenMPI + PETSc + libmesh + WASP + MOOSE | ~1.5 h | Dependency version bump, dep install got corrupted, or first-time setup on a new machine |
+| 2 | `scripts/build_moose.sh` | All of MOOSE + reruns `./configure --with-kokkos=cuda [--with-neml2]` + `make clean framework/` | ~10 min | You switched compute-device (`cpu` <-> `cuda`), or the Kokkos/NEML2 configure got out of sync |
+| 2n | `scripts/build_neml2.sh` | Reinstalls PyTorch (if needed) + NEML2 into conda moose env | ~10-30 min | NEML2 source changed, or PyTorch missing/wrong-CUDA |
+| 3 | `scripts/all.sh` (or `scripts/all.sh --no-neml2`) | Everything: submodules + OpenMPI + PETSc + libmesh + WASP + [NEML2] + MOOSE | ~1.5-2 h | Dependency version bump, dep install got corrupted, or first-time setup on a new machine |
 
 Rule of thumb: default to (1). If MOOSE build fails weirdly, try (2). Reach
-for (3) only when a dependency (PETSc / libmesh / WASP / OpenMPI) itself
-needs to change.
+for (2n) if NEML2 source changed but the stack is otherwise fine. Reach for
+(3) only when a dependency (PETSc / libmesh / WASP / OpenMPI) itself needs
+to change.
 
 Workflows (1) and (1b) work because `env.sh` exports `PETSC_DIR`,
 `PETSC_ARCH=""`, `LIBMESH_DIR`, and `WASP_DIR` (all = `$PREFIX`); MOOSE's
@@ -194,11 +201,33 @@ Makefiles read those to locate the installed stack. Do not skip
 `$MOOSE_DIR/libmesh/installed/`, which is empty on this checkout, and the
 build fails with `libmesh-config: not found`.
 
+### NEML2 support
+
+NEML2 provides the GPU-side material update path on this branch. It links
+against PyTorch and installs as a Python package. Layout choice on this
+box: PyTorch + NEML2 live in the existing `moose` **conda env**
+(`/home/chenghau.yang/miniforge/envs/moose`); PETSc / libmesh / WASP /
+OpenMPI / MOOSE stay in the from-scratch stack. `build_moose.sh` and
+`build_neml2.sh` prepend the conda env `bin/` to `PATH` *after*
+`$PREFIX/bin`, so `mpicxx` remains ours (CUDA-aware OpenMPI) while
+`python3` comes from the conda env (has NEML2 installed).
+
+Compilers for cmake: `build_neml2.sh` pins `CC=$PREFIX/bin/mpicc`,
+`CXX=$PREFIX/bin/mpicxx`, `FC=$PREFIX/bin/mpif90` before invoking pip so
+`libneml2.so` links against the same C++ ABI and OpenMPI as MOOSE. See
+`build_neml2.sh` for the details.
+
+Toggle: `all.sh` defaults to NEML2 on. Pass `--no-neml2` to skip it and
+configure MOOSE without `--with-neml2`. `build_moose.sh` respects the
+env var `NEML2_SUPPORT` (default `1`); `NEML2_SUPPORT=0 build_moose.sh`
+builds without NEML2.
+
 After (2) or (3), `build_moose.sh` prints a capability check. Expected:
 
 ```
 kokkos.value = 4.7.4      # or newer Kokkos version
 cuda.value   = 12.4.0
+neml2.value  = <version>  # only if built --with-neml2
 ```
 
 ### Switching back to the conda CPU stack

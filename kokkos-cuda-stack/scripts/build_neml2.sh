@@ -136,6 +136,15 @@ else
   # many archs, tripling build time.
   export TORCH_CUDA_ARCH_LIST="8.6"
 
+  # OpenBLAS_HOME: MOOSE's configure_libtorch.sh hardcodes -DBLAS=OpenBLAS
+  # -DUSE_LAPACK=ON, but OpenBLAS is NOT installed system-wide on this box
+  # (would need sudo apt install libopenblas-dev). The moose conda env
+  # already ships OpenBLAS (installed by conda-forge for its own use);
+  # point pytorch's FindOpenBLAS.cmake at that copy. We only USE the .so
+  # + headers; no conda env activation, no other conda pollution. The
+  # resulting libtorch will bake this path into RUNPATH.
+  export OpenBLAS_HOME="/home/chenghau.yang/miniforge/envs/moose"
+
   cd "$MOOSE_DIR"
   scripts/update_and_rebuild_libtorch.sh --install-python-package 2>&1 | tee -a "$LOG"
 

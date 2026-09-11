@@ -172,22 +172,29 @@ $PREFIX/bin/ompi_info | grep -iE 'MPI extensions|opal_built_with_cuda_support'
 # expect: "cuda" listed in MPI extensions
 ```
 
-### Build MOOSE against the stack (only)
+### Compile workflows
 
-If PETSc/libmesh/WASP are already installed at `$PREFIX` and you only want to
-rebuild MOOSE (e.g. after pulling source changes):
+There are four ways to compile, from incremental to full-stack:
 
-```bash
-/home/chenghau.yang/packages/moose-kokkos/kokkos-cuda-stack/scripts/build_moose.sh
-```
+| # | Command | Rebuilds | Time | Use when |
+|---|---|---|---|---|
+| 1 | `. env.sh` + `make -j` in `framework/` or `modules/*/` | Only MOOSE source you edited | seconds-minutes | Everyday work: you edited a `.C`/`.h` |
+| 1b | `. env.sh` + `make clean && make -j` in the same dir | Everything in that dir (framework or module) | ~10 min | After a `git pull` that touches many MOOSE files, or after re-running `./configure` |
+| 2 | `scripts/build_moose.sh` | All of MOOSE + reruns `./configure --with-kokkos=cuda` + `make clean framework/` | ~10 min | You switched compute-device (`cpu` <-> `cuda`), or the Kokkos configure got out of sync |
+| 3 | `scripts/all.sh` | Everything: OpenMPI + PETSc + libmesh + WASP + MOOSE | ~1.5 h | Dependency version bump, dep install got corrupted, or first-time setup on a new machine |
 
-`build_moose.sh` sources `env.sh`, sets `PETSC_DIR=$PREFIX`, `PETSC_ARCH=""`,
-`LIBMESH_DIR=$PREFIX`, runs `./configure --with-kokkos=cuda` at the MOOSE
-repo root, `make clean` in `framework/`, then `make -j "$MOOSE_JOBS"` in
-`framework/` and `modules/solid_mechanics/`. It ends with a capability
-check that prints `kokkos.value` and `cuda.value`.
+Rule of thumb: default to (1). If MOOSE build fails weirdly, try (2). Reach
+for (3) only when a dependency (PETSc / libmesh / WASP / OpenMPI) itself
+needs to change.
 
-Expected values after a successful CUDA build:
+Workflows (1) and (1b) work because `env.sh` exports `PETSC_DIR`,
+`PETSC_ARCH=""`, `LIBMESH_DIR`, and `WASP_DIR` (all = `$PREFIX`); MOOSE's
+Makefiles read those to locate the installed stack. Do not skip
+`. env.sh` -- unset `LIBMESH_DIR` makes MOOSE fall back to
+`$MOOSE_DIR/libmesh/installed/`, which is empty on this checkout, and the
+build fails with `libmesh-config: not found`.
+
+After (2) or (3), `build_moose.sh` prints a capability check. Expected:
 
 ```
 kokkos.value = 4.7.4      # or newer Kokkos version

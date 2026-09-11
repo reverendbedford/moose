@@ -119,14 +119,27 @@ assert getattr(torch._C, "_GLIBCXX_USE_CXX11_ABI", False),     "torch was built 
   python3 -c 'import torch; print(f"    torch={torch.__version__}  cuda={torch.version.cuda}  cuda_available={torch.cuda.is_available()}  cxx11_abi={torch._C._GLIBCXX_USE_CXX11_ABI}")' | tee -a "$LOG"
 fi
 
-# --- 3) NEML2 Python build backends ------------------------------------
-# update_and_rebuild_neml2.sh checks for these but never installs them
-# (--no-deps is used to protect the pinned torch). Install upfront.
-# ninja: scikit-build-core defaults to the Ninja generator; without it,
-# the wheel build aborts with NinjaNotFoundError. The `ninja` PyPI package
-# ships a bundled ninja binary in the venv -- avoids apt install ninja-build.
-echo "[build_neml2] ensuring NEML2 Python build deps (scikit-build-core, pybind11, ninja)"
-python3 -m pip install --upgrade scikit-build-core pybind11 ninja 2>&1 | tee -a "$LOG"
+# --- 3) NEML2 Python build backends AND runtime deps ------------------
+# update_and_rebuild_neml2.sh passes --no-deps to protect the pinned torch,
+# so it also skips every OTHER dep NEML2 needs. Install the full set here:
+#   scikit-build-core  build backend  (chosen by NEML2's pyproject.toml)
+#   ninja              build tool     (scikit-build-core default generator)
+#   pybind11           C++ bindings   (find_package(pybind11) at cmake time)
+#   nmhit>=0.3.6       NEML2-flavored C++ HIT parser (find_package(nmhit)
+#                      REQUIRED at cmake time; ships static lib + headers
+#                      under <site-packages>/nmhit/{lib,include})
+#   pybind11-stubgen   .pyi generator, listed in NEML2's cibuildwheel
+#                      before-build hook
+# Order matters only in the sense that build_neml2 assumes all these
+# succeed before calling update_and_rebuild_neml2.sh.
+echo "[build_neml2] ensuring NEML2 build+runtime deps (scikit-build-core, pybind11, ninja, nmhit, pybind11-stubgen)"
+python3 -m pip install --upgrade \
+  scikit-build-core \
+  pybind11 \
+  ninja \
+  'nmhit>=0.3.6' \
+  'pybind11-stubgen>=2.5.5' \
+  2>&1 | tee -a "$LOG"
 
 # --- 4) NEML2 itself ---------------------------------------------------
 echo "[build_neml2] pip-installing NEML2 into $NEML2_VENV (via MOOSE's update_and_rebuild_neml2.sh)"

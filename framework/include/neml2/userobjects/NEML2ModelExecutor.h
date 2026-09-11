@@ -94,8 +94,14 @@ protected:
   /// launched them. Calling this at phase boundaries makes the per-phase timings fair. No-op on CPU.
   void deviceSynchronize();
 
-  /// Save stateful variables for on-device state advance
+  /// Save the current trial state until the timestep is known to be accepted
   void advanceState();
+
+  /// Commit the state saved by advanceState()
+  void commitState();
+
+  /// Remap committed state after the batch index generator rebuilds its map
+  virtual void remapState();
 
   /// The NEML2BatchIndexGenerator used to generate the element-to-batch-index map
   const NEML2BatchIndexGenerator & _batch_index_generator;
@@ -127,8 +133,26 @@ protected:
   /// The output variables of the material model
   std::map<std::string, at::Tensor> _out;
 
-  /// Cached stateful variables from the last successful step (for on-device advance)
+  /// Stateful variables from the last accepted step
   std::map<std::string, at::Tensor> _state_vars;
+
+  /// Trial state saved at timestep end, pending acceptance on the next timestep
+  std::map<std::string, at::Tensor> _pending_state_vars;
+
+  /// Element-to-batch-index map associated with the committed state tensors
+  std::map<dof_id_type, std::size_t> _state_batch_indices;
+
+  /// Element-to-batch-index map associated with the pending state tensors
+  std::map<dof_id_type, std::size_t> _pending_state_batch_indices;
+
+  /// Timestep that produced the pending state
+  int _pending_state_t_step;
+
+  /// Whether the state tensors contain a committed batch
+  bool _state_committed;
+
+  /// Whether committed state must be remapped to a regenerated batch index map
+  bool _state_remap_pending;
 
   /// Base-shaped zero tensors for cold-started in-place-updated unknowns (an order-0 NEML2 input
   /// that is also a model output and is not gathered; see initialSetup). Injected into _in on every

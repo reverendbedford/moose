@@ -71,6 +71,15 @@ public:
    */
   KOKKOS_FUNCTION unsigned int getNumQps(ElementInfo info) const { return _n_qps[info.id]; }
   /**
+   * Get the number of quadrature points of an element from host storage
+   * @param elem_id The contiguous element ID
+   * @returns The number of quadrature points
+   */
+  unsigned int getNumQpsHost(ContiguousElementID elem_id) const
+  {
+    return _n_qps.hostData()[elem_id];
+  }
+  /**
    * Get the total number of facial quadrature points in a subdomain
    * NOTE: This number does not represent the real number of facial quadrature points but only
    * the facial quadrature points that need global caching, such as face material properties

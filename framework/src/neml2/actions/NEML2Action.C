@@ -72,6 +72,12 @@ NEML2Action::validParams()
                                "'neml2_<model-name>_<block-name>' where <model-name> is the NEML2 "
                                "model's name, and <block-name> is this action sub-block's name.");
   params.addParam<std::string>(
+      "executor_type", "NEML2ModelExecutor", "Type of NEML2 model executor user object to create");
+  params.addParam<MooseEnum>(
+      "output_backend",
+      MooseEnum("moose kokkos", "moose"),
+      "Backend used by automatically created NEML2 output material properties");
+  params.addParam<std::string>(
       "batch_index_generator_name",
       "Name of the NEML2BatchIndexGenerator user object. The default name is "
       "'neml2_index_<model-name>_<block-name>' where <model-name> is the NEML2 model's name, and "
@@ -275,7 +281,7 @@ NEML2Action::act()
 
     // The Executor UO
     {
-      auto type = "NEML2ModelExecutor";
+      const auto & type = getParam<std::string>("executor_type");
       auto params = _factory.getValidParams(type);
       params.applyParameters(parameters());
       params.set<UserObjectName>("batch_index_generator") = _idx_generator_name;
@@ -287,15 +293,32 @@ NEML2Action::act()
 
   if (_current_task == "add_material")
   {
-    // Create and register a NEML2ToMOOSE material property retriever; `extra` lets each caller
+    // Create and register a NEML2 output material property retriever; `extra` lets each caller
     // add the bits that are unique to outputs vs. derivatives.
+    const bool use_kokkos = getParam<MooseEnum>("output_backend") == "kokkos";
     auto addRetriever = [&](const std::string & moose_name,
-                            const std::string & neml2_var,
-                            const std::string & moose_tensor_type,
-                            auto && extra)
+                             const std::string & neml2_var,
+                             const std::string & moose_tensor_type,
+                             auto && extra)
     {
-      auto obj_name = obscureObjectName(moose_name, "neml2_to_moose", "", name());
-      auto obj_type = "NEML2ToMOOSE" + moose_tensor_type + "MaterialProperty";
+      if (use_kokkos && moose_tensor_type != "SymmetricRankTwoTensor" &&
+          moose_tensor_type != "SymmetricRankFourTensor")
+        paramError("output_backend",
+                   "The Kokkos output backend does not support NEML2 output '",
+                   moose_name,
+                   "' mapped to ",
+                   moose_tensor_type,
+                   ". Only symmetric rank-two and rank-four outputs are supported.");
+
+      auto obj_name = obscureObjectName(
+          moose_name, use_kokkos ? "neml2_to_kokkos" : "neml2_to_moose", "", name());
+      auto obj_type = use_kokkos
+                          ? "NEML2ToKokkos" +
+                                std::string(moose_tensor_type == "SymmetricRankTwoTensor"
+                                                ? "RankTwo"
+                                                : "RankFour") +
+                                "MaterialProperty"
+                          : "NEML2ToMOOSE" + moose_tensor_type + "MaterialProperty";
       auto obj_params = _factory.getValidParams(obj_type);
       obj_params.set<UserObjectName>("neml2_executor") = _executor_name;
       obj_params.set<MaterialPropertyName>("to_moose") = moose_name;
@@ -304,7 +327,12 @@ NEML2Action::act()
       if (_export_output_targets.count(moose_name))
         obj_params.set<std::vector<OutputName>>("outputs") = _export_output_targets[moose_name];
       extra(obj_params);
-      _problem->addMaterial(obj_type, obj_name, obj_params);
+#ifdef MOOSE_KOKKOS_ENABLED
+      if (use_kokkos)
+        _problem->addKokkosMaterial(obj_type, obj_name, obj_params);
+      else
+#endif
+        _problem->addMaterial(obj_type, obj_name, obj_params);
     };
 
     // NEML2ToMOOSE output retrievers

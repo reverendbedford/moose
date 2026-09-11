@@ -37,7 +37,15 @@ if [ "${NEML2_SUPPORT:-1}" = "1" ]; then
     echo "[build_moose]        run: $SCRIPT_DIR/build_neml2.sh   (or export NEML2_SUPPORT=0 to build without NEML2)" >&2
     exit 1
   fi
-  CONFIGURE_ARGS+=(--with-neml2)
+  # NEML2 depends on libtorch. MOOSE requires the flag explicitly -- even
+  # with --with-neml2 present, ./configure errors out with "NEML2 depends
+  # on libtorch. Please enable libtorch support with --with-libtorch"
+  # unless --with-libtorch is also passed. Bare --with-libtorch (=yes)
+  # triggers auto-detection: LIBTORCH_DIR env var -> python3 sibling of
+  # neml2's site-packages -> framework/contrib/pytorch/installed/. All
+  # three land on a libtorch install with matching torch/csrc/stable/
+  # headers on this box.
+  CONFIGURE_ARGS+=(--with-libtorch --with-neml2)
   echo "[build_moose] NEML2 support enabled (venv python3 has neml2 installed)"
 else
   echo "[build_moose] NEML2 support disabled (NEML2_SUPPORT=$NEML2_SUPPORT)"

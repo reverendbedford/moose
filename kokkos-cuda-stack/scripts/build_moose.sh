@@ -18,6 +18,35 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$SCRIPT_DIR/env.sh"
 
 LOG="$LOGS/moose-$(date +%Y%m%d-%H%M%S).log"
+
+# Skip check: if solid_mechanics-opt exists AND --show-capabilities reports
+# kokkos + cuda (+ neml2 when NEML2_SUPPORT=1) all as version strings (not
+# "false"), skip the ~10 min rebuild. FORCE_REBUILD=1 bypasses.
+EXE="$MOOSE_DIR/modules/solid_mechanics/solid_mechanics-opt"
+if [ "${FORCE_REBUILD:-0}" != "1" ] && [ -x "$EXE" ]; then
+  if "$EXE" --show-capabilities 2>/dev/null | tail -n +2 | head -n -1 > /tmp/cap-check.json \
+     && WITH_NEML2=${NEML2_SUPPORT:-1} python3 - <<'PY' 2>/dev/null
+import json, os, sys
+try:    d = json.load(open('/tmp/cap-check.json'))
+except: sys.exit(1)
+def ok(v): return v and v != 'false'
+if not (ok(d.get('kokkos', {}).get('value')) and ok(d.get('cuda', {}).get('value'))):
+    sys.exit(1)
+if os.environ.get('WITH_NEML2', '1') == '1' and not ok(d.get('neml2', {}).get('value')):
+    sys.exit(1)
+sys.exit(0)
+PY
+  then
+    echo "[build_moose] solid_mechanics-opt already built with matching capabilities; skipping."
+    python3 -c "import json; d=json.load(open('/tmp/cap-check.json')); \
+      print(f'  kokkos.value = {d.get(\"kokkos\",{}).get(\"value\")}'); \
+      print(f'  cuda.value   = {d.get(\"cuda\",{}).get(\"value\")}'); \
+      print(f'  neml2.value  = {d.get(\"neml2\",{}).get(\"value\")}')"
+    echo "[build_moose]   to force rebuild: FORCE_REBUILD=1 $0   (or rm $EXE)"
+    exit 0
+  fi
+fi
+
 echo "[build_moose] logging to $LOG"
 
 CONFIGURE_ARGS=(--with-kokkos=cuda)

@@ -7,6 +7,19 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$SCRIPT_DIR/env.sh"
 
 LOG="$LOGS/libmesh-$(date +%Y%m%d-%H%M%S).log"
+
+# Skip check: if libmesh is already installed at $PREFIX, skip the ~20 min
+# rebuild. FORCE_REBUILD=1 (set by all.sh --force) bypasses.
+if [ "${FORCE_REBUILD:-0}" != "1" ] \
+   && [ -x "$PREFIX/bin/libmesh-config" ] \
+   && [ -f "$PREFIX/lib/libmesh_opt.so" ]; then
+  echo "[build_libmesh] libmesh already installed at \$PREFIX; skipping."
+  echo "[build_libmesh]   libmesh-config : $PREFIX/bin/libmesh-config"
+  echo "[build_libmesh]   libmesh_opt.so : $($PREFIX/bin/libmesh-config --version 2>/dev/null | head -1)"
+  echo "[build_libmesh]   to force rebuild: FORCE_REBUILD=1 $0   (or rm $PREFIX/bin/libmesh-config)"
+  exit 0
+fi
+
 echo "[build_libmesh] logging to $LOG"
 
 export PETSC_DIR="$PREFIX"

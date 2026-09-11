@@ -9,6 +9,20 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$SCRIPT_DIR/env.sh"
 
 LOG="$LOGS/petsc-$(date +%Y%m%d-%H%M%S).log"
+
+# Skip check: if PETSc is already installed at $PREFIX with CUDA support,
+# skip the ~40 min rebuild. FORCE_REBUILD=1 (set by all.sh --force) bypasses.
+if [ "${FORCE_REBUILD:-0}" != "1" ] \
+   && [ -f "$PREFIX/lib/libpetsc.so" ] \
+   && [ -f "$PREFIX/include/petscconf.h" ] \
+   && grep -q 'PETSC_HAVE_CUDA \+1' "$PREFIX/include/petscconf.h" 2>/dev/null; then
+  echo "[build_petsc] PETSc already installed at \$PREFIX with CUDA support; skipping."
+  echo "[build_petsc]   libpetsc.so : $PREFIX/lib/libpetsc.so"
+  echo "[build_petsc]   petscconf.h : $(grep -m1 'PETSC_HAVE_CUDA' $PREFIX/include/petscconf.h)"
+  echo "[build_petsc]   to force rebuild: FORCE_REBUILD=1 $0   (or rm $PREFIX/lib/libpetsc.so)"
+  exit 0
+fi
+
 echo "[build_petsc] logging to $LOG"
 
 # env.sh sets PETSC_DIR="$PREFIX" and PETSC_ARCH="" for USING the installed

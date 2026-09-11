@@ -199,9 +199,18 @@ python3 -m pip install --upgrade \
   2>&1 | tee -a "$LOG"
 
 # --- 4) NEML2 itself ---------------------------------------------------
-echo "[build_neml2] pip-installing NEML2 into $NEML2_VENV (via MOOSE's update_and_rebuild_neml2.sh)"
-cd "$MOOSE_DIR"
-scripts/update_and_rebuild_neml2.sh --skip-submodule-update 2>&1 | tee -a "$LOG"
+# Skip check: if `import neml2` already succeeds in the venv, skip the
+# ~10 min wheel rebuild. FORCE_REBUILD=1 (set by all.sh --force) bypasses.
+if [ "${FORCE_REBUILD:-0}" != "1" ] \
+   && python3 -c 'import neml2' 2>/dev/null; then
+  neml2_ver=$(python3 -c 'import neml2; print(getattr(neml2, "__version__", "?"))' 2>/dev/null)
+  echo "[build_neml2] NEML2 already installed in $NEML2_VENV (version $neml2_ver); skipping."
+  echo "[build_neml2]   to force rebuild: FORCE_REBUILD=1 $0   (or pip uninstall -y neml2)"
+else
+  echo "[build_neml2] pip-installing NEML2 into $NEML2_VENV (via MOOSE's update_and_rebuild_neml2.sh)"
+  cd "$MOOSE_DIR"
+  scripts/update_and_rebuild_neml2.sh --skip-submodule-update 2>&1 | tee -a "$LOG"
+fi
 
 # --- 5) Report ---------------------------------------------------------
 NEML2_PKG=$(python3 -c 'import neml2, os; print(os.path.dirname(neml2.__file__))' 2>/dev/null || echo "(not found)")

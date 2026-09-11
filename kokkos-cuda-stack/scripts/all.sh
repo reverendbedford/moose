@@ -29,15 +29,22 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # --- Flag parsing --------------------------------------------------------
 WITH_NEML2=1
+FORCE_REBUILD=0
 for arg in "$@"; do
   case "$arg" in
     --no-neml2) WITH_NEML2=0 ;;
+    --force)    FORCE_REBUILD=1 ;;
     -h|--help)
       cat <<HELP
-Usage: $0 [--no-neml2]
+Usage: $0 [--no-neml2] [--force]
 
   --no-neml2   Skip NEML2 install; configure MOOSE without --with-neml2.
                Default: NEML2 is installed and enabled.
+  --force      Force a full rebuild even when a step's install artifacts
+               are already present. Default: each build_*.sh skips when its
+               install is detected (see the individual scripts' skip checks
+               for the exact conditions). Use this after a dep-version bump
+               or when you suspect an install is silently corrupted.
 HELP
       exit 0 ;;
     *) echo "$0: unknown flag: $arg (use --help)" >&2; exit 1 ;;
@@ -46,6 +53,8 @@ done
 
 # Passed to build_moose.sh so its ./configure line matches what we built.
 export NEML2_SUPPORT=$WITH_NEML2
+# Passed to every build_*.sh's skip check (skip if 0, always rebuild if 1).
+export FORCE_REBUILD
 
 if [ "$WITH_NEML2" = 1 ]; then
   STEPS=(openmpi petsc libmesh wasp neml2 moose benchmark)
@@ -94,7 +103,8 @@ cat <<EOF
   CUDA_DIR   : $CUDA_DIR
   MOOSE_JOBS : $MOOSE_JOBS
   LOGS       : $LOGS
-  NEML2      : $([ "$WITH_NEML2" = 1 ] && echo "on (conda moose env)" || echo "off (--no-neml2)")
+  NEML2      : $([ "$WITH_NEML2" = 1 ] && echo "on (venv)" || echo "off (--no-neml2)")
+  FORCE      : $([ "$FORCE_REBUILD" = 1 ] && echo "yes (--force -- skip checks bypassed)" || echo "no (each step skips if already installed)")
   Steps      : ${STEPS[*]}
 =============================================================================
 EOF

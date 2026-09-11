@@ -63,16 +63,25 @@ export OPAL_PREFIX="$PREFIX"
 
 mkdir -p "$PREFIX" "$LOGS"
 
-# PETSc / libmesh / MOOSE will use these values
+# --- Dependency locations for USING the installed stack -----------------
+# These are what MOOSE's Makefiles read to link against the installed PETSc,
+# libmesh, and WASP. Setting them here (not just inside build_moose.sh) lets
+# a user do `. env.sh; cd modules/solid_mechanics; make -j` without having
+# to re-export anything.
+export PETSC_DIR="$PREFIX"
+export PETSC_ARCH=""             # PREFIX-installed PETSc has no arch layer
+export LIBMESH_DIR="$PREFIX"
+export WASP_DIR="$PREFIX"
+
+# --- Source-tree locations for BUILDING the stack -----------------------
+# build_petsc.sh compiles PETSc in-tree under $PETSC_SRC_DIR/<local BUILD_ARCH>
+# then installs to --prefix=$PREFIX. It uses a local BUILD_ARCH so the empty
+# PETSC_ARCH above is preserved for USING the installed PETSc.
 export PETSC_SRC_DIR=${MOOSE_DIR}/petsc
-export PETSC_ARCH=arch-scratch-cuda
 export LIBMESH_SRC_DIR=${MOOSE_DIR}/libmesh
 
-# CUDA
+# --- CUDA ---------------------------------------------------------------
 export CUDA_DIR=/usr/local/cuda
-
-# WASP (built into $PREFIX by scripts/build_wasp.sh)
-export WASP_DIR="$PREFIX"
 
 # OpenMPI needs OMPI_FC because system /usr/bin/gfortran symlink is absent.
 export OMPI_CC=/usr/bin/gcc-11

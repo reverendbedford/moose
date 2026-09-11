@@ -11,8 +11,13 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 LOG="$LOGS/petsc-$(date +%Y%m%d-%H%M%S).log"
 echo "[build_petsc] logging to $LOG"
 
+# env.sh sets PETSC_ARCH="" for USING the installed PETSc. During the build
+# we need a non-empty arch so PETSc's Makefile has somewhere to place object
+# files under $PETSC_SRC_DIR/<arch>. Use a local BUILD_ARCH; do not export.
+BUILD_ARCH=arch-scratch-cuda
+
 # Fresh arch dir every run.
-rm -rf "$PETSC_SRC_DIR/$PETSC_ARCH"
+rm -rf "$PETSC_SRC_DIR/$BUILD_ARCH"
 
 cd "$PETSC_SRC_DIR"
 
@@ -84,8 +89,8 @@ python3 ./configure \
   2>&1 | tee "$LOG"
 
 # PETSc after successful configure suggests `make PETSC_DIR=... PETSC_ARCH=... all`.
-make PETSC_DIR="$PETSC_SRC_DIR" PETSC_ARCH="$PETSC_ARCH" all 2>&1 | tee -a "$LOG"
-make PETSC_DIR="$PETSC_SRC_DIR" PETSC_ARCH="$PETSC_ARCH" install 2>&1 | tee -a "$LOG"
+make PETSC_DIR="$PETSC_SRC_DIR" PETSC_ARCH="$BUILD_ARCH" all 2>&1 | tee -a "$LOG"
+make PETSC_DIR="$PETSC_SRC_DIR" PETSC_ARCH="$BUILD_ARCH" install 2>&1 | tee -a "$LOG"
 
 # Quick sanity: what did we get?
 echo

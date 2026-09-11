@@ -4,3 +4,6 @@ prefix/
 src/
 logs/
 libmesh-build/
+
+# One-time transition notes; regenerated on demand.
+RESUME.txt

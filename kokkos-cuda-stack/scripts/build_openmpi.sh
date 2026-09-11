@@ -7,9 +7,18 @@
 # passed. Building our own CUDA-aware OpenMPI at $PREFIX lets PETSc, libmesh
 # and MOOSE all link against it and lets GPU-aware MPI stay on.
 #
-# Idempotency: if $PREFIX/bin/ompi_info exists and reports CUDA support,
-# skip. Delete $PREFIX/bin/ompi_info (or the whole $PREFIX/bin/mpi* set) to
-# force a rebuild.
+# Idempotency: if $PREFIX/bin/ompi_info exists AND reports CUDA support AND
+# the install was built at (or has been repaired to) the current $PREFIX,
+# skip. Delete $PREFIX/bin/ompi_info to force a rebuild.
+#
+# Stale-prefix self-repair: if $PREFIX was physically moved after OpenMPI was
+# installed, opal_wrapper's RUNPATH (an ELF header, not touchable by sed)
+# still points at the original prefix; libmpi.la and pkg-config .pc files
+# reference it too. Detect via readelf on opal_wrapper's RUNPATH, sed-fix all
+# text files under $PREFIX, and force a rebuild so the wrapper binary bakes
+# the new prefix. Without this, downstream libtool builds (libmesh contrib)
+# fail with "libopen-rte.la is not a valid libtool archive" pointing at the
+# vanished old path.
 set -e
 set -o pipefail
 
@@ -18,11 +27,34 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 LOG="$LOGS/openmpi-$(date +%Y%m%d-%H%M%S).log"
 
+detect_stale_prefix() {
+  # Read opal_wrapper's DT_RUNPATH and extract the first ".../lib" entry as
+  # the baked prefix. Empty output = not stale (or wrapper missing).
+  [ -x "$PREFIX/bin/opal_wrapper" ] || return 0
+  command -v readelf >/dev/null || return 0
+  local baked
+  baked=$(readelf -d "$PREFIX/bin/opal_wrapper" 2>/dev/null \
+          | awk '/R.NPATH/ { gsub(/.*\[|\].*/, ""); print }' \
+          | tr ':' '\n' | grep '/lib$' | head -1 | sed 's|/lib$||')
+  if [ -n "$baked" ] && [ "$baked" != "$PREFIX" ]; then
+    printf '%s\n' "$baked"
+  fi
+}
+
 if [ -x "$PREFIX/bin/ompi_info" ] \
    && "$PREFIX/bin/ompi_info" | grep -q "opal_built_with_cuda_support:true\|MPI extensions:.*cuda"; then
-  echo "[build_openmpi] $PREFIX/bin/ompi_info already reports CUDA support; skipping."
-  echo "[build_openmpi] delete $PREFIX/bin/ompi_info to force a rebuild."
-  exit 0
+  stale=$(detect_stale_prefix)
+  if [ -z "$stale" ]; then
+    echo "[build_openmpi] $PREFIX/bin/ompi_info already reports CUDA support; skipping."
+    echo "[build_openmpi] delete $PREFIX/bin/ompi_info to force a rebuild."
+    exit 0
+  fi
+  echo "[build_openmpi] stale prefix detected: opal_wrapper baked at $stale, current \$PREFIX is $PREFIX."
+  echo "[build_openmpi] repairing installed text files (.la, .pc, wrapper-data, ...) via sed:"
+  n=$(grep -rlI "$stale" "$PREFIX" 2>/dev/null | tee /dev/stderr | wc -l)
+  grep -rlI "$stale" "$PREFIX" 2>/dev/null | xargs -r sed -i "s|$stale|$PREFIX|g"
+  echo "[build_openmpi] $n text files repaired; forcing OpenMPI rebuild to bake the new prefix into opal_wrapper."
+  # Fall through to the rebuild below.
 fi
 
 echo "[build_openmpi] logging to $LOG"

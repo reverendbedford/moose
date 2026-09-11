@@ -49,14 +49,17 @@ export LOGS=${STACK_DIR}/logs
 # loop above cleared PATH, so a bare `mkdir` at this point would not resolve.
 export PATH=$PREFIX/bin:/usr/local/cuda/bin:/usr/bin:/bin:/sbin:/usr/sbin
 
-# LD_LIBRARY_PATH override for the from-scratch stack. Needed because PETSc,
-# libmesh, WASP, and the MOOSE executable itself had their RUNPATH baked with
-# the OLD sibling path /home/chenghau.yang/packages/moose-cuda-stack/prefix/lib
-# (build predates the 2026-09-10 relocation into $MOOSE_DIR/kokkos-cuda-stack).
-# LD_LIBRARY_PATH is searched before DT_RUNPATH, so the loader picks up libs
-# from the new prefix. Remove this line after a full stack rebuild bakes the
-# correct RUNPATH.
-export LD_LIBRARY_PATH="$PREFIX/lib:${LD_LIBRARY_PATH:-}"
+# OPAL_PREFIX: OpenMPI's own override for a relocated install. The
+# mpicc/mpicxx/mpif90 wrappers are symlinks to opal_wrapper, which reads its
+# compile flags from ${prefix}/share/openmpi/<lang>-wrapper-data.txt where
+# ${prefix} is baked into the wrapper binary at OpenMPI build time. If the
+# stack was moved after OpenMPI was installed, that baked prefix no longer
+# exists and every wrapper invocation fails with "Cannot open configuration
+# file ...wrapper-data.txt". OPAL_PREFIX makes opal_wrapper look at the
+# current $PREFIX instead. On a fresh install it is redundant but harmless.
+# build_openmpi.sh detects this stale-prefix condition and forces a rebuild
+# so a future stack cleanup can drop this line entirely.
+export OPAL_PREFIX="$PREFIX"
 
 mkdir -p "$PREFIX" "$LOGS"
 

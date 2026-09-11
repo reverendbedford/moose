@@ -79,44 +79,73 @@ if [ ! -f "$NEML2_SRC/CMakeLists.txt" ]; then
       submodule update --init --recursive framework/contrib/neml2 2>&1 | tee -a "$LOG"
 fi
 
-# --- 2) PyTorch (CUDA 12.4 NIGHTLY wheels, C++11 ABI) -----------------
-# Why nightly cu124: NEML2 requires torch built with the C++11 ABI
-# (_GLIBCXX_USE_CXX11_ABI=1). Stable pip torch caps at 2.6.0+cu124 which
-# was built with the OLD (pre-C++11) ABI; NEML2's cmake refuses it with
-# "Detected that torch is built with the pre C++11 ABI which is no longer
-# supported." Newer stable torch (2.7+) only ships as cu126+ wheels, which
-# need driver 560+; this box has driver 550.x. The nightly cu124 index still
-# ships torch 2.7.0.dev builds with the new C++11 ABI -- confirmed on this
-# box: _GLIBCXX_USE_CXX11_ABI=True, cuda_available=True.
-TORCH_INDEX="https://download.pytorch.org/whl/nightly/cu124"
+# --- 2) libtorch + Python torch built from MOOSE's pinned pytorch commit
+# NEML2's C++ code uses very recent torch APIs (torch/csrc/stable/library.h
+# and 5-arg torch::inductor::AOTIModelPackageLoader) that don't exist in
+# any pip wheel we can install on this box: cu124 wheels cap at torch
+# 2.7.0.dev (nightly), and torch versions new enough for NEML2 (2.13-class)
+# only ship as cu126+ wheels needing driver 560+ (this box is 550.x). The
+# MOOSE-blessed workaround is to build from the pinned pytorch commit at
+# framework/contrib/pytorch (currently on release/2.13, July 2026), which
+# has those APIs and builds against our CUDA 12.4. See MOOSE's
+# scripts/update_and_rebuild_libtorch.sh + scripts/configure_libtorch.sh.
+#
+# Idempotency: skip the ~60-90 min rebuild when the venv already has a
+# torch that (a) is CUDA-capable, (b) has the C++11 ABI, and (c) ships
+# the torch/csrc/stable/library.h header NEML2 will #include.
+have_correct_torch() {
+  python3 - <<'PY' 2>/dev/null
+import os, sys
+try:
+    import torch
+except Exception:
+    sys.exit(1)
+if not torch.cuda.is_available():                                sys.exit(1)
+if not getattr(torch._C, "_GLIBCXX_USE_CXX11_ABI", False):       sys.exit(1)
+if not os.path.isfile(os.path.join(os.path.dirname(torch.__file__),
+                      "include/torch/csrc/stable/library.h")):   sys.exit(1)
+sys.exit(0)
+PY
+}
 
-# Skip check now covers BOTH cuda_available AND the C++11 ABI, since
-# a stale pre-cxx11 torch would pass the old cuda_available-only check
-# but still fail NEML2's cmake.
-if python3 -c '
-import sys, torch
-ok = torch.cuda.is_available() and getattr(torch._C, "_GLIBCXX_USE_CXX11_ABI", False)
-sys.exit(0 if ok else 1)
-' 2>/dev/null; then
-  echo "[build_neml2] PyTorch (CUDA + C++11 ABI) already installed in $NEML2_VENV:"
-  python3 -c 'import torch; print(f"    torch={torch.__version__}  cuda={torch.version.cuda}  cuda_available={torch.cuda.is_available()}  cxx11_abi={torch._C._GLIBCXX_USE_CXX11_ABI}")'
+if have_correct_torch; then
+  echo "[build_neml2] torch (CUDA + C++11 ABI + stable API) already installed in $NEML2_VENV:"
+  python3 -c 'import torch; print(f"    torch={torch.__version__}  cuda={torch.version.cuda}  cxx11_abi={torch._C._GLIBCXX_USE_CXX11_ABI}")'
 else
-  echo "[build_neml2] installing PyTorch (CUDA 12.4 NIGHTLY, C++11 ABI) into $NEML2_VENV"
-  python3 -m pip install --upgrade pip 2>&1 | tee -a "$LOG"
-  # --pre allows dev versions (nightly index uses N.N.N.devYYYYMMDD tags).
-  # --upgrade forces replacing any older stable torch that was previously
-  # installed but has the wrong (pre-cxx11) ABI.
-  python3 -m pip install --pre --upgrade torch --index-url "$TORCH_INDEX" 2>&1 | tee -a "$LOG"
-  # Verify: CUDA available AND C++11 ABI.
-  if ! python3 -c '
-import torch
-assert torch.cuda.is_available(),                              "torch.cuda.is_available() is False"
-assert getattr(torch._C, "_GLIBCXX_USE_CXX11_ABI", False),     "torch was built with pre-C++11 ABI; NEML2 refuses this"
-' 2>&1 | tee -a "$LOG"; then
-    echo "[build_neml2] ERROR: torch installed but fails CUDA-or-ABI check." >&2
+  echo "[build_neml2] building libtorch + Python torch from MOOSE's pinned pytorch commit"
+  echo "[build_neml2] (framework/contrib/pytorch, release/2.13) -- expected ~60-90 min on 32 cores"
+
+  # Init pytorch submodule (.gitmodules marks it `update = none`, same as neml2).
+  if [ ! -f "$MOOSE_DIR/framework/contrib/pytorch/setup.py" ]; then
+    echo "[build_neml2] initializing framework/contrib/pytorch submodule (overriding update=none)"
+    git -C "$MOOSE_DIR" \
+        -c submodule."framework/contrib/pytorch".update=checkout \
+        submodule update --init --recursive framework/contrib/pytorch 2>&1 | tee -a "$LOG"
+  fi
+
+  # Remove any pip-installed torch first so update_and_rebuild_libtorch.sh's
+  # pip install of the freshly-built package proceeds cleanly.
+  python3 -m pip uninstall -y torch 2>&1 | tee -a "$LOG" || true
+
+  # CUDA_HOME: pytorch's cmake auto-detects CUDA via CUDA_HOME; env.sh sets
+  # CUDA_DIR only. Export CUDA_HOME so the build turns on USE_CUDA.
+  export CUDA_HOME="$CUDA_DIR"
+
+  # TORCH_CUDA_ARCH_LIST=8.6 restricts CUDA compilation to Ampere sm_86
+  # (RTX A5000 on this box). Without this, pytorch compiles kernels for
+  # many archs, tripling build time.
+  export TORCH_CUDA_ARCH_LIST="8.6"
+
+  cd "$MOOSE_DIR"
+  scripts/update_and_rebuild_libtorch.sh --install-python-package 2>&1 | tee -a "$LOG"
+
+  # Verify all three properties, same as the skip-check above.
+  if ! have_correct_torch; then
+    echo "[build_neml2] ERROR: libtorch build finished but verification failed:" >&2
+    echo "[build_neml2]   torch import, cuda.is_available, C++11 ABI, or torch/csrc/stable/library.h" >&2
     exit 1
   fi
-  python3 -c 'import torch; print(f"    torch={torch.__version__}  cuda={torch.version.cuda}  cuda_available={torch.cuda.is_available()}  cxx11_abi={torch._C._GLIBCXX_USE_CXX11_ABI}")' | tee -a "$LOG"
+  python3 -c 'import torch; print(f"    torch={torch.__version__}  cuda={torch.version.cuda}  cxx11_abi={torch._C._GLIBCXX_USE_CXX11_ABI}")' | tee -a "$LOG"
 fi
 
 # --- 3) NEML2 Python build backends AND runtime deps ------------------

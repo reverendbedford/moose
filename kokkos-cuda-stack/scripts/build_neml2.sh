@@ -127,6 +127,17 @@ else
   # pip install of the freshly-built package proceeds cleanly.
   python3 -m pip uninstall -y torch 2>&1 | tee -a "$LOG" || true
 
+  # Pre-install pytorch's build-time Python deps. update_and_rebuild_libtorch's
+  # step 3 (cmake configure) runs Codegen.cmake, which invokes python -m
+  # torchgen.gen and imports yaml + typing-extensions + numpy well before
+  # update_and_rebuild_libtorch's step 6 (--install-python-package) runs
+  # `pip install -r requirements.txt`. So the whole build fails at configure
+  # with "ModuleNotFoundError: No module named 'yaml'" unless requirements-
+  # build.txt is installed upfront. Idempotent -- pip skips already-latest.
+  python3 -m pip install --upgrade \
+    -r "$MOOSE_DIR/framework/contrib/pytorch/requirements-build.txt" \
+    2>&1 | tee -a "$LOG"
+
   # CUDA_HOME: pytorch's cmake auto-detects CUDA via CUDA_HOME; env.sh sets
   # CUDA_DIR only. Export CUDA_HOME so the build turns on USE_CUDA.
   export CUDA_HOME="$CUDA_DIR"

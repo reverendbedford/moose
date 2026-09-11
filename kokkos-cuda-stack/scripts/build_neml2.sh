@@ -171,6 +171,7 @@ fi
 # --- 3) NEML2 Python build backends AND runtime deps ------------------
 # update_and_rebuild_neml2.sh passes --no-deps to protect the pinned torch,
 # so it also skips every OTHER dep NEML2 needs. Install the full set here:
+# BUILD-TIME (needed for the wheel build):
 #   scikit-build-core  build backend  (chosen by NEML2's pyproject.toml)
 #   ninja              build tool     (scikit-build-core default generator)
 #   pybind11           C++ bindings   (find_package(pybind11) at cmake time)
@@ -179,15 +180,22 @@ fi
 #                      under <site-packages>/nmhit/{lib,include})
 #   pybind11-stubgen   .pyi generator, listed in NEML2's cibuildwheel
 #                      before-build hook
+# RUNTIME (needed for `import neml2` to succeed after install):
+#   pyzag==2.0.0       Automatic differentiation for solid mechanics --
+#                      imported by neml2/pyzag/interface.py. Pulls in
+#                      matplotlib/scipy/pyro-ppl/tqdm/... transitively.
+#   nmhit>=0.3.6       Also runtime (imported through neml2's HIT parser)
+#   torch>=2.10.0      Already handled in step 2.
 # Order matters only in the sense that build_neml2 assumes all these
 # succeed before calling update_and_rebuild_neml2.sh.
-echo "[build_neml2] ensuring NEML2 build+runtime deps (scikit-build-core, pybind11, ninja, nmhit, pybind11-stubgen)"
+echo "[build_neml2] ensuring NEML2 build+runtime deps (scikit-build-core, pybind11, ninja, nmhit, pybind11-stubgen, pyzag)"
 python3 -m pip install --upgrade \
   scikit-build-core \
   pybind11 \
   ninja \
   'nmhit>=0.3.6' \
   'pybind11-stubgen>=2.5.5' \
+  'pyzag==2.0.0' \
   2>&1 | tee -a "$LOG"
 
 # --- 4) NEML2 itself ---------------------------------------------------

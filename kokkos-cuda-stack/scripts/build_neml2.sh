@@ -186,9 +186,17 @@ fi
 #                      matplotlib/scipy/pyro-ppl/tqdm/... transitively.
 #   nmhit>=0.3.6       Also runtime (imported through neml2's HIT parser)
 #   torch>=2.10.0      Already handled in step 2.
+# TESTHARNESS (needed for `test/run_tests` to work, since MOOSE's TestHarness
+# runs on the same venv python3 -- discovered via `direnv` prepend of the
+# venv bin):
+#   pandas             CSVValidationCase uses pandas.DataFrame
+#   deepdiff           gold-diff comparison in some validation cases
+#   jinja2             template rendering in test-report generation
+# All installed together to avoid a separate "surprise dep" iteration when
+# the user first runs run_tests.
 # Order matters only in the sense that build_neml2 assumes all these
 # succeed before calling update_and_rebuild_neml2.sh.
-echo "[build_neml2] ensuring NEML2 build+runtime deps (scikit-build-core, pybind11, ninja, nmhit, pybind11-stubgen, pyzag)"
+echo "[build_neml2] ensuring NEML2 build+runtime deps + TestHarness deps"
 python3 -m pip install --upgrade \
   scikit-build-core \
   pybind11 \
@@ -196,6 +204,9 @@ python3 -m pip install --upgrade \
   'nmhit>=0.3.6' \
   'pybind11-stubgen>=2.5.5' \
   'pyzag==2.0.0' \
+  pandas \
+  deepdiff \
+  jinja2 \
   2>&1 | tee -a "$LOG"
 
 # --- 4) NEML2 itself ---------------------------------------------------

@@ -40,7 +40,7 @@ export WASP_DIR="$PREFIX"
 export OPAL_PREFIX="$PREFIX"
 
 # PATH: prepend $PREFIX/bin (mpicc/mpirun/libmesh-config), add CUDA bin
-# (nvcc/nsys). Both guarded so re-sourcing does not duplicate.
+# (nvcc/nsys). All entries guarded so re-sourcing does not duplicate.
 case ":$PATH:" in
   *":$PREFIX/bin:"*) ;;
   *) PATH="$PREFIX/bin:$PATH" ;;
@@ -49,6 +49,42 @@ case ":$PATH:" in
   *":/usr/local/cuda/bin:"*) ;;
   *) PATH="$PATH:/usr/local/cuda/bin" ;;
 esac
+
+# NEML2 support (only when the venv is present): matches the PATH order
+# build_moose.sh uses so `cd anywhere && make -j` produces a binary with
+# the same RUNPATH as `scripts/build_moose.sh` would.
+#   $NEML2_VENV_BIN  -> python3 (venv, has `import neml2`)
+#   miniforge/bin    -> python3-config (miniforge base, Python 3.12,
+#                       needed for MOOSE's `python3-config --embed`
+#                       -lpython3.12 rather than /usr/bin's Py3.10)
+# Both inserted AFTER $PREFIX/bin so mpicxx stays ours.
+NEML2_VENV_BIN="$STACK_DIR/neml2-venv/bin"
+if [ -x "$NEML2_VENV_BIN/python3" ]; then
+  case ":$PATH:" in
+    *":$NEML2_VENV_BIN:"*) ;;
+    *)
+      # Insert right after $PREFIX/bin
+      PATH="${PATH/$PREFIX\/bin:/$PREFIX/bin:$NEML2_VENV_BIN:}"
+      ;;
+  esac
+  export VIRTUAL_ENV="$STACK_DIR/neml2-venv"
+fi
+
+MINIFORGE_BIN="/home/chenghau.yang/miniforge/bin"
+if [ -x "$MINIFORGE_BIN/python3-config" ]; then
+  case ":$PATH:" in
+    *":$MINIFORGE_BIN:"*) ;;
+    *)
+      # Insert right after venv bin (or $PREFIX/bin if venv absent)
+      if [ -n "${VIRTUAL_ENV:-}" ]; then
+        PATH="${PATH/$NEML2_VENV_BIN:/$NEML2_VENV_BIN:$MINIFORGE_BIN:}"
+      else
+        PATH="${PATH/$PREFIX\/bin:/$PREFIX/bin:$MINIFORGE_BIN:}"
+      fi
+      ;;
+  esac
+fi
+
 export PATH
 
 : "${MOOSE_JOBS:=8}"

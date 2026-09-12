@@ -60,7 +60,22 @@ if [ "${NEML2_SUPPORT:-1}" = "1" ]; then
     exit 1
   fi
   export VIRTUAL_ENV="$STACK_DIR/neml2-venv"
-  export PATH="$PREFIX/bin:$NEML2_VENV_BIN:$PATH"
+  # PATH order matters:
+  #   $PREFIX/bin        -> mpicxx/mpicc/mpif90 (CUDA-aware OpenMPI)
+  #   $NEML2_VENV_BIN    -> python3 / pip in venv (needed so `import neml2` works)
+  #   miniforge/bin      -> python3-config emitting THE RIGHT prefix. Venv has
+  #                         no python3-config; a symlink into venv/bin would still
+  #                         emit venv paths (python3-config computes prefix from
+  #                         `pwd -P` of its own directory). MOOSE's moose.mk line
+  #                         200 uses `python3-config --ldflags --embed` to link
+  #                         libpython for libneml2_eager.so's Python API refs.
+  #                         Wrong python3-config -> -lpython3.10 -> undefined
+  #                         PyDict_Watch etc. from libtorch_python.so (built
+  #                         against Py3.12). Placing miniforge/bin AFTER the
+  #                         venv keeps venv-linked `python3` for `import neml2`
+  #                         but lets python3-config resolve to miniforge (3.12).
+  MINIFORGE_BIN="/home/chenghau.yang/miniforge/bin"
+  export PATH="$PREFIX/bin:$NEML2_VENV_BIN:$MINIFORGE_BIN:$PATH"
   if ! "$NEML2_VENV_BIN/python3" -c 'import neml2' 2>/dev/null; then
     echo "[build_moose] ERROR: NEML2_SUPPORT=1 but 'import neml2' fails in $NEML2_VENV_BIN/python3." >&2
     echo "[build_moose]        run: $SCRIPT_DIR/build_neml2.sh   (or export NEML2_SUPPORT=0 to build without NEML2)" >&2

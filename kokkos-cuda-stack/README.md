@@ -185,7 +185,7 @@ There are four ways to compile, from incremental to full-stack:
 |---|---|---|---|---|
 | 1 | `. env.sh` + `make -j` in `framework/` or `modules/*/` | Only MOOSE source you edited | seconds-minutes | Everyday work: you edited a `.C`/`.h` |
 | 1b | `. env.sh` + `make clean && make -j` in the same dir | Everything in that dir (framework or module) | ~10 min | After a `git pull` that touches many MOOSE files, or after re-running `./configure` |
-| 2 | `scripts/build_moose.sh` | All of MOOSE + reruns `./configure --with-kokkos=cuda [--with-neml2]` + `make clean framework/` | ~10 min | You switched compute-device (`cpu` <-> `cuda`), or the Kokkos/NEML2 configure got out of sync |
+| 2 | `scripts/build_moose.sh` | All of MOOSE (framework + solid_mechanics + test) + reruns `./configure --with-kokkos=cuda [--with-neml2 --with-libtorch]` + auto-cleans stale conda-triplet artifacts + `make clean framework/` | ~15 min | You switched compute-device (`cpu` <-> `cuda`), the Kokkos/NEML2 configure got out of sync, OR you just switched from a conda-env build to the from-scratch stack (the auto-cleanup fires only then) |
 | 2n | `scripts/build_neml2.sh` | Reinstalls PyTorch (if needed) + NEML2 into `neml2-venv/` | ~10-30 min | NEML2 source changed, or PyTorch missing/wrong-CUDA |
 | 3 | `scripts/all.sh` (or `scripts/all.sh --no-neml2`) | Everything: submodules + OpenMPI + PETSc + libmesh + WASP + [NEML2] + MOOSE | ~1.5-2 h | Dependency version bump, dep install got corrupted, or first-time setup on a new machine |
 

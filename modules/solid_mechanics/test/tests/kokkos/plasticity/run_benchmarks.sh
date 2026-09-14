@@ -4,6 +4,13 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 MOOSE_DIR=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
+
+# Source the CUDA-Kokkos stack activation so OpenMPI can find its runtime
+# data files. The stack was relocated after build; without OPAL_PREFIX the
+# opal_wrapper falls back to a CWD-relative lookup and MPI_Init fails.
+# shellcheck disable=SC1091
+source "$MOOSE_DIR/kokkos-cuda-stack/scripts/activate.sh"
+
 EXE=${EXE:-$MOOSE_DIR/modules/solid_mechanics/solid_mechanics-opt}
 RESULTS_DIR=${RESULTS_DIR:-$SCRIPT_DIR/results}
 MESH_N=${MESH_N:-16}

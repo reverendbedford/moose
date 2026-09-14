@@ -89,7 +89,8 @@ GPU_OPT="-nl0_vec_type kokkos   -nl0_mat_type aijkokkos -use_gpu_aware_mpi 0 $CO
 
 steps=(step1_plasticity_cpu_neml2
        step2_plasticity_gpu_neml2
-       step3_plasticity_gpu_neml2_kokkos_cpu_petsc
+       step3a_plasticity_cpu_neml2_kokkos_cpu_petsc
+       step3b_plasticity_gpu_neml2_kokkos_cpu_petsc
        step4_plasticity_full_gpu)
 
 banner() {
@@ -206,7 +207,7 @@ run_step() {
   local petsc=$CPU_OPT
   local device_args=()
 
-  if [[ "$step" == step3_* || "$step" == step4_* ]]; then
+  if [[ "$step" == step3a_* || "$step" == step3b_* || "$step" == step4_* ]]; then
     device_args=(--compute-device=cuda)
   fi
   if [[ "$step" == step4_* ]]; then

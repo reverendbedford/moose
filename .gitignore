@@ -356,3 +356,6 @@ binaryoutput
 # large, machine-local artifact; only the checked-in config is tracked.
 .codegraph/
 !codegraph.json
+
+
+modules/solid_mechanics/test/tests/kokkos/plasticity/diag_results

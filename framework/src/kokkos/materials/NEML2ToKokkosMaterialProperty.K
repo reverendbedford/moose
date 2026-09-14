@@ -38,30 +38,17 @@ NEML2ToKokkosMaterialProperty<rank>::NEML2ToKokkosMaterialProperty(const InputPa
 #ifdef NEML2_ENABLED
 #ifdef MOOSE_ENABLE_KOKKOS_GPU
 #ifdef KOKKOS_ENABLE_CUDA
-  // Keep NEML2 computation and output retrieval on the device where Kokkos consumes the output
+  // NEML2 may compute on another device, but its batched outputs must be transferred to the
+  // CUDA device where Kokkos consumes them.
   const at::Device kokkos_device(at::kCUDA, ExecSpace().cuda_device());
-  const auto & neml2_device = neml2Device();
-  if (neml2_device.type() != kokkos_device.type() ||
-      (neml2_device.has_index() && neml2_device.index() != kokkos_device.index()))
-    paramError("neml2_executor",
-               "The NEML2 model compute device ",
-               neml2_device,
-               " does not match the Kokkos device ",
-               kokkos_device,
-               ".");
   requestNEML2OutputDevice(kokkos_device);
 #else
   mooseError("NEML2ToKokkosMaterialProperty supports GPU execution only with CUDA.");
 #endif
 #else
+  // NEML2 may compute on another device, but its batched outputs must be transferred to the
+  // host where CPU Kokkos consumes them.
   const at::Device kokkos_device(at::kCPU);
-  if (neml2Device() != kokkos_device)
-    paramError("neml2_executor",
-               "The NEML2 model compute device ",
-               neml2Device(),
-               " does not match the Kokkos device ",
-               kokkos_device,
-               ".");
   requestNEML2OutputDevice(kokkos_device);
 #endif
 #endif

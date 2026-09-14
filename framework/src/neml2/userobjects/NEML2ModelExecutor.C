@@ -567,11 +567,11 @@ void
 NEML2ModelExecutor::extractOutputs(bool compute_derivative)
 {
   TIME_SECTION(
-      "NEML2::extractOutputs", 1, "Copying NEML2 outputs and derivatives back to the host");
+      "NEML2::extractOutputs", 1, "Copying NEML2 outputs and derivatives to the output device");
   try
   {
-    // retrieve outputs. The D2H copies to output_device() (host) below are synchronous, so with
-    // solve()'s post-compute sync in place this phase's time reflects the transfer alone.
+    // Retrieve outputs on the device requested by their consumers. Transfers use blocking
+    // at::Tensor::to calls, so this phase's time reflects the transfer alone.
     // .contiguous() so the consuming NEML2ToMOOSEMaterialProperty can read the batch with a plain
     // per-element memcpy off data_ptr() instead of per-qp at::Tensor ops.
     for (auto & [y, target] : _retrieved_outputs)

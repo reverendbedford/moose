@@ -7,13 +7,19 @@ as progressively more work is moved to one GPU:
 | --- | --- | --- | --- |
 | 1 | CPU | CPU | CPU |
 | 2 | GPU | CPU | CPU |
-| 3 | GPU | GPU (Kokkos) | CPU |
+| 3a | CPU | GPU (Kokkos) | CPU |
+| 3b | GPU | GPU (Kokkos) | CPU |
 | 4 | GPU | GPU (Kokkos) | GPU (AIJKokkos) |
 
 Step 2 intentionally copies the NEML2 stress and tangent back to host memory.
-Step 3 leaves PETSc on standard CPU vectors and AIJ matrices. Step 4 selects
-Kokkos vectors and AIJKokkos through `PETSC_OPTIONS` in the runner because
-these unprefixed PETSc options cannot reliably be placed in a MOOSE input.
+Step 3a evaluates NEML2 on the CPU while Kokkos assembly remains on the GPU, so
+the strain input moves device-to-host and the stress and tangent outputs move
+host-to-device. Step 3b keeps NEML2 and assembly on the GPU. Both Step 3 cases
+leave PETSc on standard CPU vectors and AIJ matrices. Step 4 also moves PETSc
+vectors and matrices to the GPU.
+
+The runner passes PETSc options on the MOOSE command line because MOOSE rebuilds
+the PETSc options database before each solve.
 
 All steps use one MPI rank. This makes the experiment usable with one GPU but
 means that MPI time and CUDA-aware MPI performance are not measured. A later

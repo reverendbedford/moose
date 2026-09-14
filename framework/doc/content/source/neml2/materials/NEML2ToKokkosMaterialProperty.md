@@ -7,7 +7,7 @@ Users are not expected to directly use these objects in an input file. Instead, 
 
 ## Description
 
-This family of objects transfers a NEML2 symmetric tensor output or derivative to a Kokkos material property. The NEML2 tensor is staged through host memory and converted from Mandel notation when the Kokkos material is evaluated.
+This family of objects transfers a NEML2 symmetric tensor output or derivative to a Kokkos material property. The NEML2 executor moves the batched tensor from its compute device to the device used by Kokkos, if necessary, and the Kokkos material converts it from Mandel notation when evaluated.
 
 The following objects are available:
 

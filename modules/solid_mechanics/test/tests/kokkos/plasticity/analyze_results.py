@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize and plot the four NEML2/Kokkos/PETSc benchmark steps."""
+"""Summarize and plot the five NEML2/Kokkos/PETSc benchmark steps."""
 
 from __future__ import annotations
 
@@ -21,8 +21,12 @@ STEPS = [
     ("step1_plasticity_cpu_neml2", "1. CPU NEML2"),
     ("step2_plasticity_gpu_neml2", "2. GPU NEML2"),
     (
-        "step3_plasticity_gpu_neml2_kokkos_cpu_petsc",
-        "3. GPU NEML2 + assembly",
+        "step3a_plasticity_cpu_neml2_kokkos_cpu_petsc",
+        "3a. CPU NEML2 + assembly",
+    ),
+    (
+        "step3b_plasticity_gpu_neml2_kokkos_cpu_petsc",
+        "3b. GPU NEML2 + assembly",
     ),
     ("step4_plasticity_full_gpu", "4. Full GPU"),
 ]

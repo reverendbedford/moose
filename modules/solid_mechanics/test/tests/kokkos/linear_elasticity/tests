@@ -220,12 +220,12 @@
     compute_devices = 'cuda'
   []
 
-  [neml2_cuda_compute_device_mismatch]
-    type = RunException
+  [neml2_cpu_to_cuda_material_plane_strain]
+    type = Exodiff
     input = 'neml2_kokkos_linear_elasticity.i'
     cli_args = 'NEML2/device=cpu'
-    expect_err = 'The NEML2 model compute device cpu does not match the Kokkos device cuda'
-    requirement = 'The system shall reject CPU NEML2 model computation for CUDA Kokkos material properties.'
+    exodiff = 'kokkos_linear_elasticity_out.e'
+    requirement = 'The system shall transfer CPU NEML2 symmetric stress and tangent outputs to CUDA Kokkos material properties.'
     capabilities = 'kokkos & libtorch & neml2'
     compute_devices = 'cuda'
   []

@@ -1,6 +1,6 @@
 N = 16
 
-# Step 3: GPU NEML2, GPU Kokkos assembly, and CPU PETSc.
+# Step 3b: GPU NEML2, GPU Kokkos assembly, and CPU PETSc.
 [Mesh]
   [generated]
     type = GeneratedMeshGenerator

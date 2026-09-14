@@ -359,3 +359,5 @@ binaryoutput
 
 
 modules/solid_mechanics/test/tests/kokkos/plasticity/diag_results
+
+modules/solid_mechanics/test/tests/kokkos/plasticity/results_n32_smoke/

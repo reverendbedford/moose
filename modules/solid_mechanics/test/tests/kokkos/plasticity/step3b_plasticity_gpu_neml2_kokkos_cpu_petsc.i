@@ -149,6 +149,27 @@ N = 16
   residual_and_jacobian_together = true
 []
 
+# Diagnostic sample points: verify the KokkosDirichletBC + RealFunctionControl
+# actually applies loading. At t=5e-3 the right boundary should track the
+# loading function (u_x = t), so ux_right ~ 5e-3 and ux_center ~ 2.5e-3.
+# If ux_right stays 0, the control is not reaching the Kokkos BC value and
+# SNES is converging in 0 iterations against a zero-load residual.
+[Postprocessors]
+  [ux_right]
+    type = PointValue
+    variable = disp_x
+    point = '1 0.5 0.5'
+    execute_on = TIMESTEP_END
+  []
+  [ux_center]
+    type = PointValue
+    variable = disp_x
+    point = '0.5 0.5 0.5'
+    execute_on = TIMESTEP_END
+  []
+[]
+
 [Outputs]
   exodus = false
+  csv = true
 []

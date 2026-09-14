@@ -65,12 +65,12 @@ echo "-- torch   : $(python3 -c 'import torch; print(torch.__version__, "cuda_av
 mkdir -p "$RESULTS_DIR"
 
 # PETSc diagnostic options common to every step.
-# -nl0_ksp_view          : dump KSP/PC/Mat/Vec config (shows resolved types)
-# -nl0_snes_view         : dump SNES config
-# -nl0_*_converged_reason: one-line convergence status per solve
-# -nl0_*_monitor         : per-iteration residual norms (nonlinear + linear)
-# -log_view              : PETSc event timing at PetscFinalize
-# -options_left          : list any options set but not consumed (critical!)
+# -ksp_view          : dump KSP/PC/Mat/Vec config (shows resolved types)
+# -snes_view         : dump SNES config
+# -*_converged_reason: one-line convergence status per solve
+# -*_monitor         : per-iteration residual norms (nonlinear + linear)
+# -log_view          : PETSc event timing at PetscFinalize
+# -options_left      : list any options set but not consumed (critical!)
 #
 # These are passed on the MOOSE command line, NOT via the PETSC_OPTIONS env
 # var. MOOSE's petscSetOptions() (framework/src/utils/PetscSupport.C) calls
@@ -79,11 +79,12 @@ mkdir -p "$RESULTS_DIR"
 # from the MOOSE command line via addPetscOptionsFromCommandline(). So the
 # command line is the only channel that survives.
 #
-# SNES/KSP diagnostic flags must carry the 'nl0_' system prefix because
-# MOOSE creates the SNES/KSP objects under that prefix; unprefixed variants
-# hit no object and end up on the "options you set that were not used" list.
-COMMON_DIAG="-nl0_snes_view -nl0_snes_converged_reason -nl0_snes_monitor \
-             -nl0_ksp_view  -nl0_ksp_converged_reason  -nl0_ksp_monitor \
+# The SNES/KSP diagnostic flags stay UNPREFIXED: previous runs confirm the
+# unprefixed variants (-ksp_view etc.) are consumed and produce output, so
+# adding 'nl0_' would just make them show up in 'options you set that were
+# not used'.
+COMMON_DIAG="-snes_view -snes_converged_reason -snes_monitor \
+             -ksp_view  -ksp_converged_reason  -ksp_monitor \
              -log_view -options_left"
 
 # MOOSE guards -mat_type behind a solver-system prefix ('nl0' here); the

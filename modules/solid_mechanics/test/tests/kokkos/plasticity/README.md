@@ -51,7 +51,32 @@ N=64 smoke run checks memory, runtime, and convergence with one repetition.
 Only after it succeeds, the formal N=64 run performs three timing repetitions
 without profiling.
 
-Useful overrides:
+## Coarse Exodus correctness check
+
+Use the coarse-output runner before interpreting benchmark speedups:
+
+```bash
+./run_coarse_exodus.sh
+```
+
+It runs all five configurations once with `N=8`, forces Exodus and CSV output,
+and writes separate `.e`, `.csv`, and `.log` files under
+`coarse_exodus_n8/`. This run includes output overhead and is for correctness,
+not timing.
+
+For Steps 3a, 3b, and 4, the script also prints the final `ux_right` and
+`ux_center` point values already defined in those inputs. At `t=0.005`, the
+expected displacement is approximately `ux_right=0.005` and
+`ux_center=0.0025`. Open the Exodus files in ParaView and compare `disp_x`
+between all five steps.
+
+Override the coarse mesh or output location when needed:
+
+```bash
+MESH_N=4 OUTPUT_DIR=/tmp/plasticity_exodus ./run_coarse_exodus.sh
+```
+
+Useful benchmark overrides:
 
 ```bash
 EXE=/path/to/solid_mechanics-opt MESH_N=16 REPEATS=3 PROFILE=0 ./run_benchmarks.sh

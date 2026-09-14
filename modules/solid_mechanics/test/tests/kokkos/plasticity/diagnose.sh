@@ -65,11 +65,12 @@ echo "-- torch   : $(python3 -c 'import torch; print(torch.__version__, "cuda_av
 mkdir -p "$RESULTS_DIR"
 
 # PETSc diagnostic options common to every step.
-# -ksp_view          : dump KSP/PC/Mat/Vec config (shows resolved types)
-# -snes_view         : dump SNES config
-# -*_converged_reason: one-line convergence status per solve
-# -log_view          : PETSc event timing at PetscFinalize
-# -options_left      : list any options set but not consumed (critical!)
+# -nl0_ksp_view          : dump KSP/PC/Mat/Vec config (shows resolved types)
+# -nl0_snes_view         : dump SNES config
+# -nl0_*_converged_reason: one-line convergence status per solve
+# -nl0_*_monitor         : per-iteration residual norms (nonlinear + linear)
+# -log_view              : PETSc event timing at PetscFinalize
+# -options_left          : list any options set but not consumed (critical!)
 #
 # These are passed on the MOOSE command line, NOT via the PETSC_OPTIONS env
 # var. MOOSE's petscSetOptions() (framework/src/utils/PetscSupport.C) calls
@@ -77,15 +78,23 @@ mkdir -p "$RESULTS_DIR"
 # anything PETSC_OPTIONS put in the option database; it then re-adds options
 # from the MOOSE command line via addPetscOptionsFromCommandline(). So the
 # command line is the only channel that survives.
-COMMON_DIAG="-snes_view -snes_converged_reason -ksp_converged_reason -ksp_view -log_view -options_left"
+#
+# SNES/KSP diagnostic flags must carry the 'nl0_' system prefix because
+# MOOSE creates the SNES/KSP objects under that prefix; unprefixed variants
+# hit no object and end up on the "options you set that were not used" list.
+COMMON_DIAG="-nl0_snes_view -nl0_snes_converged_reason -nl0_snes_monitor \
+             -nl0_ksp_view  -nl0_ksp_converged_reason  -nl0_ksp_monitor \
+             -log_view -options_left"
 
-# MOOSE guards -mat_type / -vec_type behind a solver-system prefix; the
-# nonlinear system in these inputs is 'nl0'. Without the prefix libMesh
-# aborts with:
+# MOOSE guards -mat_type behind a solver-system prefix ('nl0' here); the
+# option DB call for matrices is prefixed so unprefixed -mat_type triggers:
 #   "Setting option '-mat_type' is not supported without a solver-system
 #    prefix. Use '-nl0_mat_type' for assembled libMesh matrices."
-CPU_OPT="-nl0_vec_type standard -nl0_mat_type aij       -use_gpu_aware_mpi 0 $COMMON_DIAG"
-GPU_OPT="-nl0_vec_type kokkos   -nl0_mat_type aijkokkos -use_gpu_aware_mpi 0 $COMMON_DIAG"
+# -vec_type, by contrast, is applied by PETSc's VecSetFromOptions() with NO
+# system prefix, so it MUST be passed unprefixed; -nl0_vec_type would end
+# up ignored (see framework/src/utils/PetscSupport.C).
+CPU_OPT="-vec_type standard -nl0_mat_type aij       -use_gpu_aware_mpi 0 $COMMON_DIAG"
+GPU_OPT="-vec_type kokkos   -nl0_mat_type aijkokkos -use_gpu_aware_mpi 0 $COMMON_DIAG"
 
 steps=(step1_plasticity_cpu_neml2
        step2_plasticity_gpu_neml2

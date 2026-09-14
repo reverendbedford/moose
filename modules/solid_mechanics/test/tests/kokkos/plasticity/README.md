@@ -35,11 +35,21 @@ branch:
 source kokkos-cuda-stack/scripts/activate.sh
 ```
 
-Then run from this directory:
+Then run from this directory. The wrapper scripts preserve separate result
+directories and encode the recommended progression:
 
 ```bash
-MESH_N=32 REPEATS=5 ./run_benchmarks.sh
+./run_n32_smoke.sh
+./run_n32_benchmarks.sh
+./run_n64_smoke.sh
+./run_n64_benchmarks.sh
 ```
+
+The N=32 smoke run uses one unprofiled repetition. The formal N=32 run uses
+five timing repetitions and one separate Nsight Systems profile per step. The
+N=64 smoke run checks memory, runtime, and convergence with one repetition.
+Only after it succeeds, the formal N=64 run performs three timing repetitions
+without profiling.
 
 Useful overrides:
 

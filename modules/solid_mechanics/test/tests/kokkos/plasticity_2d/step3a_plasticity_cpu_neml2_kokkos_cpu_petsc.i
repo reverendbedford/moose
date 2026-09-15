@@ -1,14 +1,12 @@
 N = 16
 
-# Step 4: GPU NEML2, GPU Kokkos assembly, and GPU PETSc on one GPU.
-# run_benchmarks.sh selects PETSc AIJKokkos and Kokkos vectors externally.
+# Step 3a: CPU NEML2, GPU Kokkos assembly, and CPU PETSc.
 [Mesh]
   [generated]
     type = GeneratedMeshGenerator
-    dim = 3
+    dim = 2
     nx = ${N}
     ny = ${N}
-    nz = ${N}
   []
 []
 
@@ -16,8 +14,6 @@ N = 16
   [disp_x]
   []
   [disp_y]
-  []
-  [disp_z]
   []
 []
 
@@ -27,7 +23,7 @@ N = 16
   [all]
     executor_name = neml2
     model = model
-    device = cuda
+    device = cpu
     input_kernels = neml2_strain
     auto_output = false
     manage_state_advance = true
@@ -47,7 +43,7 @@ N = 16
     assembly = assembly
     fe = fe
     to_neml2 = neml2_strain
-    displacements = 'disp_x disp_y disp_z'
+    displacements = 'disp_x disp_y'
   []
 []
 
@@ -56,19 +52,13 @@ N = 16
     type = KokkosStressDivergence
     variable = disp_x
     component = 0
-    displacements = 'disp_x disp_y disp_z'
+    displacements = 'disp_x disp_y'
   []
   [stress_y]
     type = KokkosStressDivergence
     variable = disp_y
     component = 1
-    displacements = 'disp_x disp_y disp_z'
-  []
-  [stress_z]
-    type = KokkosStressDivergence
-    variable = disp_z
-    component = 2
-    displacements = 'disp_x disp_y disp_z'
+    displacements = 'disp_x disp_y'
   []
 []
 
@@ -100,17 +90,13 @@ N = 16
     variable = disp_x
     boundary = right
     value = 0
+    # Deliberately exercise the suspected non-preset Kokkos loading path.
+    preset = false
   []
   [disp_y]
     type = KokkosDirichletBC
     variable = disp_y
     boundary = bottom
-    value = 0
-  []
-  [disp_z]
-    type = KokkosDirichletBC
-    variable = disp_z
-    boundary = back
     value = 0
   []
 []
@@ -141,8 +127,8 @@ N = 16
 [Executioner]
   type = Transient
   solve_type = NEWTON
-  petsc_options_iname = '-pc_type -ksp_type'
-  petsc_options_value = 'gamg gmres'
+  petsc_options_iname = '-pc_type'
+  petsc_options_value = 'lu'
   dt = 1e-3
   dtmin = 1e-3
   num_steps = 5
@@ -150,22 +136,17 @@ N = 16
   residual_and_jacobian_together = true
 []
 
-# Diagnostic sample points: verify the KokkosDirichletBC + RealFunctionControl
-# actually applies loading. At t=5e-3 the right boundary should track the
-# loading function (u_x = t), so ux_right ~ 5e-3 and ux_center ~ 2.5e-3.
-# If ux_right stays 0, the control is not reaching the Kokkos BC value and
-# SNES is converging in 0 iterations against a zero-load residual.
 [Postprocessors]
   [ux_right]
     type = PointValue
     variable = disp_x
-    point = '1 0.5 0.5'
+    point = '1 0.5 0'
     execute_on = TIMESTEP_END
   []
   [ux_center]
     type = PointValue
     variable = disp_x
-    point = '0.5 0.5 0.5'
+    point = '0.5 0.5 0'
     execute_on = TIMESTEP_END
   []
 []

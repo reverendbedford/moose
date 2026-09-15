@@ -99,9 +99,6 @@ N = 16
     variable = disp_x
     boundary = right
     value = 0
-    # Match Steps 1-2: drive the time-dependent BC through the nonlinear residual
-    # so the Torch/NEML2 interpolation sees each updated boundary value.
-    preset = false
   []
   [disp_y]
     type = KokkosDirichletBC

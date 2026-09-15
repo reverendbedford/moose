@@ -78,15 +78,21 @@ NEML2ToKokkosMaterialProperty<rank>::computeQpProperties(const unsigned int qp,
   const auto batch =
       _broadcast_output ? 0 : _element_batch_offset[datum.elemID()] + static_cast<dof_id_type>(qp);
 
-  for (const auto i : make_range(kokkosAssembly().getDimension()))
-    for (const auto j : make_range(kokkosAssembly().getDimension()))
+  // Cache the mesh dimension in a local before the write loop. Using
+  // libMesh::make_range() with either the device-side kokkosAssembly() accessor or a cached
+  // local produces an empty range on CUDA in this compilation unit, so the loop body never
+  // executes and _prop stays at the value the device View was created with (zero). Raw
+  // counter loops against the cached dimension iterate correctly.
+  const unsigned int dim = kokkosAssembly().getDimension();
+  for (unsigned int i = 0; i < dim; ++i)
+    for (unsigned int j = 0; j < dim; ++j)
     {
       const auto a = mandelIndex(i, j);
       if constexpr (rank == 2)
         prop(i, j) = _staged_output[batch * 6 + a] / mandelFactor(a);
       else
-        for (const auto k : make_range(kokkosAssembly().getDimension()))
-          for (const auto l : make_range(kokkosAssembly().getDimension()))
+        for (unsigned int k = 0; k < dim; ++k)
+          for (unsigned int l = 0; l < dim; ++l)
           {
             const auto b = mandelIndex(k, l);
             prop(i, j, k, l) = _staged_output[batch * 36 + 6 * a + b] /

@@ -53,7 +53,10 @@ KokkosStressDivergence::precomputeQpResidual(const unsigned int qp, AssemblyDatu
 {
   Real3 residual(0);
   const auto stress = _stress(datum, qp);
-  for (const auto j : make_range(_ndisp))
+  // libMesh::make_range() produces an empty range on CUDA in this compilation unit; use raw
+  // counter loops (see the note in NEML2ToKokkosMaterialProperty::computeQpProperties).
+  const unsigned int ndisp = _ndisp;
+  for (unsigned int j = 0; j < ndisp; ++j)
     residual(j) = stress(_component, j);
   return residual;
 }
@@ -74,7 +77,8 @@ KokkosStressDivergence::precomputeQpOffDiagJacobian(const unsigned int j,
                                                    const unsigned int qp,
                                                    AssemblyDatum & datum) const
 {
-  for (const auto component : make_range(_ndisp))
+  const unsigned int ndisp = _ndisp;
+  for (unsigned int component = 0; component < ndisp; ++component)
     if (_displacement_var_ids[component] == jvar)
       return jacobian(component, _grad_phi(datum, j, qp), qp, datum);
 
@@ -89,8 +93,9 @@ KokkosStressDivergence::jacobian(const unsigned int displacement_component,
 {
   Real3 result(0);
   const auto tangent = _tangent(datum, qp);
-  for (const auto j : make_range(_ndisp))
-    for (const auto l : make_range(_ndisp))
+  const unsigned int ndisp = _ndisp;
+  for (unsigned int j = 0; j < ndisp; ++j)
+    for (unsigned int l = 0; l < ndisp; ++l)
       result(j) += 0.5 * (tangent(_component, j, displacement_component, l) +
                           tangent(_component, j, l, displacement_component)) *
                    grad_phi(l);

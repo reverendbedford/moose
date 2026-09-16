@@ -1,3 +1,7 @@
+# Step 4 cannot directly use FunctionDirichletBC because it does not support GPU execution;
+# instead, using a Control to update a scalar KokkosDirichletBC is currently the standard
+# and most efficient approach for implementing time-dependent boundary conditions in MOOSE's GPU mode.
+
 N = 16
 
 # Step 4: GPU NEML2, GPU Kokkos assembly, and GPU PETSc on one GPU.

@@ -89,9 +89,9 @@ N = 16
     type = KokkosDirichletBC
     variable = disp_x
     boundary = right
+    preset = false
     value = 0
     # Deliberately exercise the suspected non-preset Kokkos loading path.
-    preset = false
   []
   [disp_y]
     type = KokkosDirichletBC

@@ -99,6 +99,7 @@ N = 16
     type = KokkosDirichletBC
     variable = disp_x
     boundary = right
+    preset = false
     value = 0
   []
   [disp_y]

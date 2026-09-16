@@ -9,6 +9,17 @@ MOOSE_DIR=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 # shellcheck disable=SC1091
 source "$MOOSE_DIR/kokkos-cuda-stack/scripts/activate.sh"
 
+# Pin all GPU-backed steps in this correctness run to one physical GPU.  Keep
+# an explicit caller/scheduler selection, otherwise choose the GPU with the most
+# free memory once so step2/3b/4 all use the same device.
+if [ -z "${CUDA_VISIBLE_DEVICES:-}" ]; then
+  CUDA_VISIBLE_DEVICES=$(python3 "$SCRIPT_DIR/select_cuda_device.py" \
+    --reason "plasticity coarse Exodus run")
+  export CUDA_VISIBLE_DEVICES
+else
+  echo "[cuda] honoring existing CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES" >&2
+fi
+
 EXE=${EXE:-$MOOSE_DIR/modules/solid_mechanics/solid_mechanics-opt}
 MESH_N=${MESH_N:-8}
 OUTPUT_DIR=${OUTPUT_DIR:-$SCRIPT_DIR/coarse_exodus_n$MESH_N}

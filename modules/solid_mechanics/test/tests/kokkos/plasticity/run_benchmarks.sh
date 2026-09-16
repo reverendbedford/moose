@@ -11,6 +11,18 @@ MOOSE_DIR=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 # shellcheck disable=SC1091
 source "$MOOSE_DIR/kokkos-cuda-stack/scripts/activate.sh"
 
+# Pin the entire staged benchmark to one physical GPU.  If the caller already
+# selected CUDA devices (for example through a scheduler or an explicit shell
+# export), preserve that choice.  Otherwise choose the GPU with the most free
+# memory once, then let CUDA remap it to logical cuda:0 inside every child.
+if [ -z "${CUDA_VISIBLE_DEVICES:-}" ]; then
+  CUDA_VISIBLE_DEVICES=$(python3 "$SCRIPT_DIR/select_cuda_device.py" \
+    --reason "plasticity benchmark")
+  export CUDA_VISIBLE_DEVICES
+else
+  echo "[cuda] honoring existing CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES" >&2
+fi
+
 EXE=${EXE:-$MOOSE_DIR/modules/solid_mechanics/solid_mechanics-opt}
 RESULTS_DIR=${RESULTS_DIR:-$SCRIPT_DIR/results}
 MESH_N=${MESH_N:-16}

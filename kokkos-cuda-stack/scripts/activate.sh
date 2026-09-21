@@ -21,7 +21,12 @@
 # For full stack rebuilds, use scripts/all.sh or scripts/build_*.sh.
 # Do NOT source this file INSTEAD of env.sh for a build.
 
-_activate_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+if [ -n "${ZSH_VERSION:-}" ]; then
+  _src="${(%):-%x}"
+else
+  _src="${BASH_SOURCE[0]}"
+fi
+_activate_dir=$(cd "$(dirname "$_src")" && pwd)
 export MOOSE_DIR="${_activate_dir%/kokkos-cuda-stack/scripts}"
 export STACK_DIR="$MOOSE_DIR/kokkos-cuda-stack"
 export PREFIX="$STACK_DIR/prefix"

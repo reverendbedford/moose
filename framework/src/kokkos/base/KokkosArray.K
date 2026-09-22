@@ -7,7 +7,14 @@
 //* Licensed under LGPL 2.1, please see LICENSE for details
 //* https://www.gnu.org/licenses/lgpl-2.1.html
 
+// Kokkos Kernels pulls in oneMKL as its host BLAS backend, and mkl_lapack.h
+// declares a global `float SECOND(void)` timer that collides with the
+// libMesh Order enumerator of the same name that MOOSE hoists into the global
+// namespace. Rename the prototype for the duration of the include; nothing
+// here calls it.
+#define SECOND MOOSE_MKL_SECOND_TIMER
 #include "KokkosBlas.hpp"
+#undef SECOND
 
 #include "KokkosArray.h"
 #include "KokkosThread.h"

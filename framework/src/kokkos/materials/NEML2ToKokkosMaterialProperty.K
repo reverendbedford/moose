@@ -11,6 +11,56 @@
 
 #include <algorithm>
 
+#if defined(NEML2_ENABLED) && defined(MOOSE_ENABLE_KOKKOS_GPU) && defined(KOKKOS_ENABLE_SYCL)
+// c10::xpu device queries, used to match the Kokkos SYCL device to a torch XPU device index.
+#include <c10/xpu/XPUFunctions.h>
+#endif
+
+#ifdef NEML2_ENABLED
+namespace
+{
+/**
+ * Torch device backing the Kokkos execution space.
+ *
+ * NEML2 outputs must be staged on this device before Kokkos can consume them: the unmanaged Views
+ * built over the output tensors in computeProperties() are only addressable from the Kokkos
+ * execution space if the tensor memory lives on the same device.
+ */
+at::Device
+kokkosTorchDevice()
+{
+#ifndef MOOSE_ENABLE_KOKKOS_GPU
+  return at::Device(at::kCPU);
+#elif defined(KOKKOS_ENABLE_CUDA)
+  return at::Device(at::kCUDA, ExecSpace().cuda_device());
+#elif defined(KOKKOS_ENABLE_SYCL)
+  // A USM pointer is only valid within the SYCL context it was allocated in, so an unmanaged View
+  // over a torch allocation is addressable from the Kokkos queue only if the two share a context.
+  // Both torch and Kokkos take the platform default context today, so this holds; check it rather
+  // than let deep_copy() fault if that ever stops being true.
+  const auto & queue = ExecSpace().sycl_queue();
+  if (queue.get_context() != c10::xpu::get_device_context())
+    ::mooseError("Kokkos and torch are using different SYCL contexts, so NEML2 output tensors are "
+                 "not addressable from the Kokkos execution space.");
+
+  // torch indexes its XPU devices independently of Kokkos, so map through the SYCL device itself
+  // rather than assuming the two enumerations agree.
+  const auto & kokkos_device = queue.get_device();
+  for (c10::DeviceIndex i = 0; i < c10::xpu::device_count(); ++i)
+    if (c10::xpu::get_raw_device(i) == kokkos_device)
+      return at::Device(at::kXPU, i);
+
+  ::mooseError("The SYCL device Kokkos is running on is not among the ",
+               static_cast<int>(c10::xpu::device_count()),
+               " XPU devices visible to torch.");
+#else
+  ::mooseError("NEML2ToKokkosMaterialProperty supports GPU execution only with the CUDA and SYCL "
+               "Kokkos backends.");
+#endif
+}
+}
+#endif
+
 registerKokkosMaterial("MooseApp", NEML2ToKokkosRankTwoMaterialProperty);
 registerKokkosMaterial("MooseApp", NEML2ToKokkosRankFourMaterialProperty);
 
@@ -36,21 +86,9 @@ NEML2ToKokkosMaterialProperty<rank>::NEML2ToKokkosMaterialProperty(const InputPa
 {
   NEML2Utils::assertNEML2Enabled();
 #ifdef NEML2_ENABLED
-#ifdef MOOSE_ENABLE_KOKKOS_GPU
-#ifdef KOKKOS_ENABLE_CUDA
   // NEML2 may compute on another device, but its batched outputs must be transferred to the
-  // CUDA device where Kokkos consumes them.
-  const at::Device kokkos_device(at::kCUDA, ExecSpace().cuda_device());
-  requestNEML2OutputDevice(kokkos_device);
-#else
-  mooseError("NEML2ToKokkosMaterialProperty supports GPU execution only with CUDA.");
-#endif
-#else
-  // NEML2 may compute on another device, but its batched outputs must be transferred to the
-  // host where CPU Kokkos consumes them.
-  const at::Device kokkos_device(at::kCPU);
-  requestNEML2OutputDevice(kokkos_device);
-#endif
+  // device where Kokkos consumes them.
+  requestNEML2OutputDevice(kokkosTorchDevice());
 #endif
 }
 
@@ -95,11 +133,7 @@ NEML2ToKokkosMaterialProperty<rank>::computeProperties()
       _broadcast_output = true;
     }
 #ifdef MOOSE_ENABLE_KOKKOS_GPU
-#ifdef KOKKOS_ENABLE_CUDA
     ::Kokkos::deep_copy(_staged_output.deviceView(), 0.0);
-#else
-    mooseError("NEML2ToKokkosMaterialProperty supports GPU execution only with CUDA.");
-#endif
 #else
     std::fill_n(_staged_output.hostData(), num_components, 0);
 #endif
@@ -128,30 +162,15 @@ NEML2ToKokkosMaterialProperty<rank>::computeProperties()
                  neml2Output().sizes(),
                  " into a Kokkos material property; expected zero, one, or two batch dimensions.");
 
-#ifdef MOOSE_ENABLE_KOKKOS_GPU
-#ifdef KOKKOS_ENABLE_CUDA
-    if (!neml2Output().is_cuda())
+    const auto kokkos_device = kokkosTorchDevice();
+    if (neml2Output().device() != kokkos_device)
       mooseError("Cannot copy NEML2 output on ",
                  neml2Output().device(),
-                 " into a CUDA Kokkos material property. Set the NEML2 executor output_device to "
-                 "the CUDA device used by Kokkos.");
-    const auto kokkos_device = ExecSpace().cuda_device();
-    if (neml2Output().device().index() != kokkos_device)
-      mooseError("Cannot copy NEML2 output on ",
-                 neml2Output().device(),
-                 " into a Kokkos material property on cuda:",
+                 " into a Kokkos material property on ",
                  kokkos_device,
-                 ". The NEML2 and Kokkos CUDA device indices must match.");
-#else
-    mooseError("NEML2ToKokkosMaterialProperty supports GPU execution only with CUDA.");
-#endif
-#else
-    if (!neml2Output().is_cpu())
-      mooseError("Cannot copy NEML2 output on ",
-                 neml2Output().device(),
-                 " into a CPU Kokkos material property. Set the NEML2 executor output_device to "
-                 "cpu.");
-#endif
+                 ". Set the NEML2 executor output_device to ",
+                 kokkos_device,
+                 ".");
 
     const auto output = neml2Output().contiguous();
     const auto batch_size = static_cast<std::size_t>(output.numel() / num_components);
@@ -164,12 +183,10 @@ NEML2ToKokkosMaterialProperty<rank>::computeProperties()
       _broadcast_output = broadcast_output;
     }
 #ifdef MOOSE_ENABLE_KOKKOS_GPU
-#ifdef KOKKOS_ENABLE_CUDA
     const auto output_view =
         ::Kokkos::View<const Real *, MemSpace, ::Kokkos::MemoryTraits<::Kokkos::Unmanaged>>(
             output.template data_ptr<Real>(), output.numel());
     ::Kokkos::deep_copy(_staged_output.deviceView(), output_view);
-#endif
 #else
     std::copy_n(output.template data_ptr<Real>(), output.numel(), _staged_output.hostData());
 #endif

@@ -20,15 +20,20 @@
 #include "libmesh/id_types.h"
 #include "neml2/csrc/aoti/Exception.h"
 
-// torch::cuda::synchronize() (declared in <torch/cuda.h>, defined in libtorch) does a full device
-// synchronization -- see deviceSynchronize(). We cannot include <torch/cuda.h> here: it lives under
-// torch/csrc/api/include (not necessarily on MOOSE's include path), and the lower-level c10/cuda
-// sync headers transitively include <cuda_runtime.h>, which is not on the include path either.
-// Forward-declare the stable frontend symbol instead; it is resolved from libtorch (always linked)
-// and is present even in a CPU-only torch, where deviceSynchronize() never reaches the call.
+// torch::cuda::synchronize() and torch::xpu::synchronize() (declared in <torch/cuda.h> and
+// <torch/xpu.h>, defined in libtorch) do a full device synchronization -- see deviceSynchronize().
+// We cannot include those headers here: they live under torch/csrc/api/include (not necessarily on
+// MOOSE's include path), and the lower-level c10/cuda sync headers transitively include
+// <cuda_runtime.h>, which is not on the include path either. Forward-declare the stable frontend
+// symbols instead; they are resolved from libtorch (always linked) and are present even in a
+// CPU-only torch, where deviceSynchronize() never reaches the calls.
 namespace torch
 {
 namespace cuda
+{
+void synchronize(int64_t device_index);
+}
+namespace xpu
 {
 void synchronize(int64_t device_index);
 }
@@ -324,6 +329,8 @@ NEML2ModelExecutor::deviceSynchronize()
 {
   if (device().is_cuda())
     torch::cuda::synchronize(device().index());
+  else if (device().is_xpu())
+    torch::xpu::synchronize(device().index());
 }
 
 void

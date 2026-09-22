@@ -112,6 +112,7 @@ else ifneq ($(PETSC_HAVE_SYCL),)
   KOKKOS_CXX         = $(SYCL_COMPILER)
   KOKKOS_CXXFLAGS    = -fsycl -fno-sycl-rdc -x c++ $(CXXFLAGS) $(libmesh_CXXFLAGS)
   KOKKOS_CXXFLAGS   += -Wno-deprecated-declarations -Wno-macro-redefined
+  KOKKOS_CXXFLAGS   += -include $(MOOSE_DIR)/framework/include/kokkos/base/KokkosSYCLCompat.h
   KOKKOS_CPPFLAGS    = $(libmesh_CPPFLAGS) $(ADDITIONAL_CPPFLAGS) ${ADDITIONAL_KOKKOS_CPPFLAGS}
   KOKKOS_LDFLAGS     = -fsycl
   ifneq ($(SYCL_ARCH),)

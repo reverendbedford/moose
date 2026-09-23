@@ -12,8 +12,10 @@
 #include "NEML2Utils.h"
 #include "NonlinearSystemBase.h"
 #include <algorithm>
-#include <string>
 #include <cctype>
+#include <optional>
+#include <string>
+#include <utility>
 
 #ifdef NEML2_ENABLED
 #include <ATen/ATen.h>
@@ -355,14 +357,80 @@ NEML2ModelExecutor::fillInputs()
         if (val.defined())
           _in[name] = val;
 
+    // Check if the trailing dimensions of a tensor match the expected base shape
+    // (verifying that all dimensions after the batch dimensions match).
+    auto trailing_shape_matches =
+        [](const at::Tensor & tensor, const std::vector<int64_t> & base_shape)
+    {
+      const auto base_dim = static_cast<int64_t>(base_shape.size());
+      if (tensor.dim() < base_dim)
+        return false;
+      for (const auto d : make_range(base_dim))
+        if (tensor.size(tensor.dim() - base_dim + d) != base_shape[d])
+          return false;
+      return true;
+    };
+
+    // Infer the active 2D batch shape [nelem, nqp] from input tensors (_in).
+    // Kokkos GPU execution uses a 2D batch layout [nelem, nqp]. We inspect the inputs to find
+    // one whose leading dimensions (excluding its base shape) form this 2D batch.
+    std::optional<std::pair<int64_t, int64_t>> active_batch_shape;
+    const auto & in_names = model().input_names();
+    const auto & in_shapes = model().input_base_shapes();
+    for (const auto i : index_range(in_names))
+    {
+      const auto it = _in.find(in_names[i]);
+      if (it == _in.end() || !it->second.defined())
+        continue;
+
+      const auto & tensor = it->second;
+      const auto & base_shape = in_shapes[i];
+      if (!trailing_shape_matches(tensor, base_shape))
+        continue;
+
+      const auto base_dim = static_cast<int64_t>(base_shape.size());
+      if (tensor.dim() - base_dim == 2)
+      {
+        active_batch_shape = {tensor.size(0), tensor.size(1)};
+        break;
+      }
+    }
+
     // Send input variables to the compute device
     for (auto & [var, val] : _in)
       val = val.to(device());
 
-    // Push the gathered model parameters into the NEML2 model (on the compute device) so the
-    // subsequent evaluation and its parameter Jacobian use the MOOSE-provided values.
+    // Push model parameters (_model_params) to the compute device.
+    // If the inputs use a 2D batch [nelem, nqp], but a material parameter was gathered on the
+    // host with a flat 1D batch of size [nelem * nqp], reshape it to [nelem, nqp, ...base_shape...]
+    // so its batch layout matches the inputs.
+    const auto & param_shapes = model().parameter_base_shapes();
     for (auto & [pname, pval] : _model_params)
-      model().set_parameter(pname, pval.to(device()));
+    {
+      auto parameter = pval;
+      if (active_batch_shape)
+      {
+        const auto param_it = param_shapes.find(pname);
+        if (param_it != param_shapes.end())
+        {
+          const auto & base_shape = param_it->second;
+          const auto base_dim = static_cast<int64_t>(base_shape.size());
+          const auto [nelem, nqp] = *active_batch_shape;
+
+          // Reshape only when:
+          // 1. The parameter has a single flattened batch dimension [nelem * nqp].
+          // 2. Its trailing dimensions match the NEML2 parameter base shape.
+          if (parameter.dim() == base_dim + 1 && parameter.size(0) == nelem * nqp &&
+              trailing_shape_matches(parameter, base_shape))
+          {
+            std::vector<int64_t> reshaped_shape = {nelem, nqp};
+            reshaped_shape.insert(reshaped_shape.end(), base_shape.begin(), base_shape.end());
+            parameter = parameter.reshape(reshaped_shape);
+          }
+        }
+      }
+      model().set_parameter(pname, parameter.to(device()));
+    }
     _model_params.clear();
 
     // The H2D copies above are asynchronous on CUDA; block so this phase's time reflects the

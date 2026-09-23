@@ -1,0 +1,13 @@
+[Tests]
+  issues = '#30655'
+  design = 'NEML2ModelExecutor.md KokkosQuantityToNEML2.md MOOSEQuantityToNEML2.md'
+
+  [device_older_variable_gather]
+    type = Exodiff
+    input = 'neml2_action_kokkos_older_input.i'
+    exodiff = 'neml2_action_kokkos_older_input_out.e'
+    requirement = 'When the NEML2 output backend is Kokkos, the system shall gather an older (lag 2) VARIABLE input directly on the device across multiple transient time steps.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu'
+  []
+[]

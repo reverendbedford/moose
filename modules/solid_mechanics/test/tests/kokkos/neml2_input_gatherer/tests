@@ -2,11 +2,12 @@
   issues = '#30655'
   design = 'NEML2ModelExecutor.md KokkosQuantityToNEML2.md MOOSEQuantityToNEML2.md'
 
-  [device_older_variable_gather]
+  [device_material_parameter_gather]
     type = Exodiff
-    input = 'neml2_action_kokkos_older_input.i'
-    exodiff = 'neml2_action_kokkos_older_input_out.e'
-    requirement = 'When the NEML2 output backend is Kokkos, the system shall gather an older (lag 2) VARIABLE input directly on the device across multiple transient time steps.'
+    input = 'neml2_action_kokkos_material_parameter.i'
+    cli_args = 'Outputs/file_base=neml2_action_cpu_input_out'
+    exodiff = 'neml2_action_cpu_input_out.e'
+    requirement = 'When Torch/Kokkos inputs use an element-QP 2D batch, the system shall allow a host MOOSE material property to be supplied as a NEML2 model parameter with the same batch shape and produce the reference thermo-elastic solution.'
     capabilities = 'kokkos & libtorch & neml2'
     compute_devices = 'cpu'
   []

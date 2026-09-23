@@ -1,9 +1,16 @@
+Nelem = 3
+Ngrain = 3
+
 [Mesh]
-  [generated]
+  [gmg]
     type = GeneratedMeshGenerator
-    dim = 2
-    nx = 4
-    ny = 4
+    dim = 3
+    nx = ${fparse Nelem * Ngrain}
+    ny = ${fparse Nelem * Ngrain}
+    nz = ${fparse Nelem * Ngrain}
+    xmin = -1
+    ymin = -1
+    zmin = -1
   []
 []
 
@@ -12,37 +19,22 @@
   []
   [disp_y]
   []
-  [T]
-  []
-[]
-
-[Functions]
-  [t_fn]
-    type = ParsedFunction
-    expression = '1 + 2*x'
-  []
-[]
-
-[ICs]
-  [t_ic]
-    type = FunctionIC
-    variable = T
-    function = t_fn
+  [disp_z]
   []
 []
 
 [NEML2]
   eager = true
-  input = 'thermal_neml2.i'
+  input = 'perfect_neml2.i'
   [all]
     executor_name = neml2
     model = model
+    #device = xpu
+    device = cpu
     input_kernels = neml2_strain
-    moose_to_neml2_on_gpu = true
-    output_backend = kokkos
-    derivatives = 'neml2_stress neml2_strain Jacobian_mult'
-
-    parameters = 'E'
+    auto_output = false
+    manage_state_advance = true
+    parameters = 'sy'
     parameter_types = 'MATERIAL'
   []
 []
@@ -60,7 +52,7 @@
     assembly = assembly
     fe = fe
     to_neml2 = neml2_strain
-    displacements = 'disp_x disp_y'
+    displacements = 'disp_x disp_y disp_z'
   []
 []
 
@@ -69,19 +61,41 @@
     type = KokkosStressDivergence
     variable = disp_x
     component = 0
-    displacements = 'disp_x disp_y'
-    stress = neml2_stress
+    displacements = 'disp_x disp_y disp_z'
   []
   [stress_y]
     type = KokkosStressDivergence
     variable = disp_y
     component = 1
-    displacements = 'disp_x disp_y'
-    stress = neml2_stress
+    displacements = 'disp_x disp_y disp_z'
   []
-  [diffusion_T]
-    type = Diffusion
-    variable = T
+  [stress_z]
+    type = KokkosStressDivergence
+    variable = disp_z
+    component = 2
+    displacements = 'disp_x disp_y disp_z'
+  []
+[]
+
+[Materials]
+  [yield_stress]
+    type = GenericConstantMaterial
+    prop_names = 'sy'
+    prop_values = '5.0'
+  []
+
+  [stress]
+    type = NEML2ToKokkosRankTwoMaterialProperty
+    neml2_executor = neml2
+    from_neml2 = neml2_stress
+    to_moose = stress
+  []
+  [tangent]
+    type = NEML2ToKokkosRankFourMaterialProperty
+    neml2_executor = neml2
+    from_neml2 = neml2_stress
+    neml2_input_derivative = neml2_strain
+    to_moose = Jacobian_mult
   []
 []
 
@@ -96,28 +110,60 @@
     type = KokkosDirichletBC
     variable = disp_x
     boundary = right
-    value = 0.1
-  []
-  [disp_y]
-    type = KokkosDirichletBC
-    variable = disp_y
-    boundary = 'top bottom'
     value = 0
   []
-  [T_all]
-    type = FunctionDirichletBC
-    variable = T
-    boundary = 'left right top bottom'
-    function = t_fn
+  [disp_y_bottom]
+    type = KokkosDirichletBC
+    variable = disp_y
+    boundary = bottom
+    value = 0
+  []
+  [disp_y_top]
+    type = KokkosDirichletBC
+    variable = disp_y
+    boundary = top
+    value = 0
+    preset = false
+  []
+  [disp_z_back]
+    type = KokkosDirichletBC
+    variable = disp_z
+    boundary = back
+    value = 0
+  []
+  [disp_z_front]
+    type = KokkosDirichletBC
+    variable = disp_z
+    boundary = front
+    value = 0
+    preset = false
   []
 []
 
-[Materials]
-  [youngs_modulus]
-    type = GenericConstantMaterial
-    prop_names = E
-    prop_values = 10
+[Functions]
+  [loading_pos]
+    type = ParsedFunction
+    expression = t
   []
+  [loading_neg]
+    type = ParsedFunction
+    expression = t
+  []
+[]
+
+[Controls]
+  [loading_top]
+    type = RealFunctionControl
+    parameter = 'BCs/disp_y_top/value'
+    function = loading_pos
+    execute_on = 'INITIAL TIMESTEP_BEGIN'
+  []
+#  [loading_front]
+#    type = RealFunctionControl
+#    parameter = 'BCs/disp_z_front/value'
+#    function = loading_neg
+#    execute_on = 'INITIAL TIMESTEP_BEGIN'
+#  []
 []
 
 [Preconditioning]
@@ -128,13 +174,28 @@
 []
 
 [Executioner]
-  type = Steady
+  type = Transient
   solve_type = NEWTON
-  nl_abs_tol = 1e-12
+  petsc_options_iname = '-pc_type -ksp_type'
+  petsc_options_value = 'gamg gmres'
+  dt = 1e-3
+  dtmin = 1e-3
+  num_steps = 5
+  nl_rel_tol = 1e-8
+  nl_abs_tol = 1e-10
+
+  automatic_scaling = false
+
+  residual_and_jacobian_together = true
+
+  l_tol = 1e-3
 []
 
 [Outputs]
+  file_base = 'results'
   exodus = true
-  hide = 'T'
-  file_base = neml2_action_kokkos_material_parameter_out
+  csv = true
+  [pgraph]
+    type = PerfGraphOutput
+  []
 []

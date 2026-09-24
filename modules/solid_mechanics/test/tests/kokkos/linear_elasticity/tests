@@ -141,6 +141,17 @@
     allow_test_objects = true
   []
 
+  [neml2_gathered_state]
+    type = Exodiff
+    input = 'neml2_kokkos_perfect_plasticity.i'
+    cli_args = 'NEML2/all/manage_state_advance=false Outputs/file_base=perfect_out'
+    exodiff = 'perfect_out.e'
+    gold_dir = '../../neml2/plasticity/gold'
+    requirement = 'The system shall reshape flat gathered old NEML2 state to match an element-QP FE-interpolated strain batch and produce the reference perfect-plasticity solution.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu'
+  []
+
   [neml2_isotropic_hardening]
     type = Exodiff
     input = 'neml2_kokkos_perfect_plasticity.i'

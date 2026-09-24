@@ -396,40 +396,45 @@ NEML2ModelExecutor::fillInputs()
       }
     }
 
-    // Send input variables to the compute device
+    // Match a flat gathered batch to the active element-QP layout only when its complete shape
+    // agrees with the model's expected base shape.
+    auto reshape_flat_batch =
+        [&](const at::Tensor & tensor, const std::vector<int64_t> & base_shape)
+    {
+      if (active_batch_shape)
+      {
+        const auto base_dim = static_cast<int64_t>(base_shape.size());
+        const auto [nelem, nqp] = *active_batch_shape;
+        if (tensor.dim() == base_dim + 1 && tensor.size(0) == nelem * nqp &&
+            trailing_shape_matches(tensor, base_shape))
+        {
+          std::vector<int64_t> reshaped_shape = {nelem, nqp};
+          reshaped_shape.insert(reshaped_shape.end(), base_shape.begin(), base_shape.end());
+          return tensor.reshape(reshaped_shape);
+        }
+      }
+      return tensor;
+    };
+
+    // Send input variables to the compute device, reshaping flat gathered inputs to match any
+    // element-QP batch inferred from an FE-interpolated input.
+    for (const auto i : index_range(in_names))
+    {
+      const auto it = _in.find(in_names[i]);
+      if (it != _in.end() && it->second.defined())
+        it->second = reshape_flat_batch(it->second, in_shapes[i]);
+    }
     for (auto & [var, val] : _in)
       val = val.to(device());
 
-    // Push model parameters (_model_params) to the compute device.
-    // If the inputs use a 2D batch [nelem, nqp], but a material parameter was gathered on the
-    // host with a flat 1D batch of size [nelem * nqp], reshape it to [nelem, nqp, ...base_shape...]
-    // so its batch layout matches the inputs.
+    // Push model parameters to the compute device with the same batch-layout normalization.
     const auto & param_shapes = model().parameter_base_shapes();
     for (auto & [pname, pval] : _model_params)
     {
-      auto parameter = pval;
-      if (active_batch_shape)
-      {
-        const auto param_it = param_shapes.find(pname);
-        if (param_it != param_shapes.end())
-        {
-          const auto & base_shape = param_it->second;
-          const auto base_dim = static_cast<int64_t>(base_shape.size());
-          const auto [nelem, nqp] = *active_batch_shape;
-
-          // Reshape only when:
-          // 1. The parameter has a single flattened batch dimension [nelem * nqp].
-          // 2. Its trailing dimensions match the NEML2 parameter base shape.
-          if (parameter.dim() == base_dim + 1 && parameter.size(0) == nelem * nqp &&
-              trailing_shape_matches(parameter, base_shape))
-          {
-            std::vector<int64_t> reshaped_shape = {nelem, nqp};
-            reshaped_shape.insert(reshaped_shape.end(), base_shape.begin(), base_shape.end());
-            parameter = parameter.reshape(reshaped_shape);
-          }
-        }
-      }
-      model().set_parameter(pname, parameter.to(device()));
+      const auto param_it = param_shapes.find(pname);
+      if (param_it != param_shapes.end())
+        pval = reshape_flat_batch(pval, param_it->second);
+      model().set_parameter(pname, pval.to(device()));
     }
     _model_params.clear();
 

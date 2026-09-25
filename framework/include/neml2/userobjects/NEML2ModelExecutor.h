@@ -175,6 +175,9 @@ protected:
   /// MOOSE data gathering user objects (input variables)
   std::vector<const MOOSEToNEML2 *> _gatherers;
 
+  /// MOOSE data gathering user objects used to initialize device-managed state
+  std::vector<const MOOSEToNEML2 *> _state_initializers;
+
   /// MOOSE data gathering user objects (model parameters)
   std::vector<const MOOSEToNEML2 *> _param_gatherers;
 

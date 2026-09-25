@@ -13,9 +13,9 @@
 #include "MathUtils.h"
 
 /**
- * Copies a symmetric rank-two or rank-four NEML2 output into a Kokkos material property.
+ * Copies a symmetric or full rank-two or rank-four NEML2 output into a Kokkos material property.
  */
-template <unsigned int rank>
+template <unsigned int rank, bool full = false>
 class NEML2ToKokkosMaterialProperty : public Moose::Kokkos::Material,
                                       public NEML2OutputInterface
 {
@@ -47,10 +47,12 @@ private:
 
 using NEML2ToKokkosRankTwoMaterialProperty = NEML2ToKokkosMaterialProperty<2>;
 using NEML2ToKokkosRankFourMaterialProperty = NEML2ToKokkosMaterialProperty<4>;
+using NEML2ToKokkosFullRankTwoMaterialProperty = NEML2ToKokkosMaterialProperty<2, true>;
+using NEML2ToKokkosFullRankFourMaterialProperty = NEML2ToKokkosMaterialProperty<4, true>;
 
-template <unsigned int rank>
+template <unsigned int rank, bool full>
 KOKKOS_FUNCTION unsigned int
-NEML2ToKokkosMaterialProperty<rank>::mandelIndex(const unsigned int i, const unsigned int j)
+NEML2ToKokkosMaterialProperty<rank, full>::mandelIndex(const unsigned int i, const unsigned int j)
 {
   if (i == j)
     return i;
@@ -61,18 +63,18 @@ NEML2ToKokkosMaterialProperty<rank>::mandelIndex(const unsigned int i, const uns
   return 5;
 }
 
-template <unsigned int rank>
+template <unsigned int rank, bool full>
 KOKKOS_FUNCTION Real
-NEML2ToKokkosMaterialProperty<rank>::mandelFactor(const unsigned int index)
+NEML2ToKokkosMaterialProperty<rank, full>::mandelFactor(const unsigned int index)
 {
   return index < 3 ? 1.0 : MathUtils::sqrt2;
 }
 
-template <unsigned int rank>
+template <unsigned int rank, bool full>
 template <typename Derived>
 KOKKOS_FUNCTION void
-NEML2ToKokkosMaterialProperty<rank>::computeQpProperties(const unsigned int qp,
-                                                          Datum & datum) const
+NEML2ToKokkosMaterialProperty<rank, full>::computeQpProperties(const unsigned int qp,
+                                                                 Datum & datum) const
 {
   auto prop = _prop(datum, qp);
   const auto batch =
@@ -87,16 +89,29 @@ NEML2ToKokkosMaterialProperty<rank>::computeQpProperties(const unsigned int qp,
   for (unsigned int i = 0; i < dim; ++i)
     for (unsigned int j = 0; j < dim; ++j)
     {
-      const auto a = mandelIndex(i, j);
-      if constexpr (rank == 2)
-        prop(i, j) = _staged_output[batch * 6 + a] / mandelFactor(a);
+      if constexpr (full)
+      {
+        if constexpr (rank == 2)
+          prop(i, j) = _staged_output[batch * 9 + 3 * i + j];
+        else
+          for (unsigned int k = 0; k < dim; ++k)
+            for (unsigned int l = 0; l < dim; ++l)
+              prop(i, j, k, l) =
+                  _staged_output[batch * 81 + 27 * i + 9 * j + 3 * k + l];
+      }
       else
-        for (unsigned int k = 0; k < dim; ++k)
-          for (unsigned int l = 0; l < dim; ++l)
-          {
-            const auto b = mandelIndex(k, l);
-            prop(i, j, k, l) = _staged_output[batch * 36 + 6 * a + b] /
-                               (mandelFactor(a) * mandelFactor(b));
-          }
+      {
+        const auto a = mandelIndex(i, j);
+        if constexpr (rank == 2)
+          prop(i, j) = _staged_output[batch * 6 + a] / mandelFactor(a);
+        else
+          for (unsigned int k = 0; k < dim; ++k)
+            for (unsigned int l = 0; l < dim; ++l)
+            {
+              const auto b = mandelIndex(k, l);
+              prop(i, j, k, l) = _staged_output[batch * 36 + 6 * a + b] /
+                                 (mandelFactor(a) * mandelFactor(b));
+            }
+      }
     }
 }

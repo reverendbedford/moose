@@ -90,6 +90,10 @@ NEML2ToMOOSEMaterialProperty<T>::computeProperties()
   // axis is present iff the tensor has more dims than the base shape of the MOOSE type T.
   const auto base_ndim = static_cast<int64_t>(NEML2Utils::Layout<T>::shape.size());
   const bool batched = _value.dim() > base_ndim;
+  const auto base_size = NEML2Utils::Layout<T>::strides[0];
+  const auto batch_size = batched ? _value.numel() / base_size : 1;
+  const auto flat_value =
+      batched ? _value.flatten(0, _value.dim() - base_ndim - 1) : _value;
 
   // Fast path: the retrieved output lives on the host (the default output_device) as a contiguous
   // double buffer (see NEML2ModelExecutor::extractOutputs), so copy each element's data with a
@@ -97,8 +101,7 @@ NEML2ToMOOSEMaterialProperty<T>::computeProperties()
   // Fall back to the generic tensor copy only when the output was kept on an accelerator.
   if (_value.is_cpu())
   {
-    const Real * data = _value.template data_ptr<Real>();
-    const auto base_size = NEML2Utils::Layout<T>::strides[0];
+    const Real * data = flat_value.template data_ptr<Real>();
     for (_qp = 0; _qp < _qrule->n_points(); ++_qp)
     {
       // The batch-index map can outrun a not-yet-recomputed output/derivative tensor when the set
@@ -108,8 +111,8 @@ NEML2ToMOOSEMaterialProperty<T>::computeProperties()
       // failure and cuts the time step, after which the model re-evaluates on the enlarged batch.
       // The raw memcpy would instead read past the buffer, so guard it: on an out-of-range index
       // fall back to the throwing copy to preserve that cut-back signal.
-      if (batched && static_cast<int64_t>(i + _qp) >= _value.size(0))
-        NEML2Utils::copyTensorToMOOSEData(_value[static_cast<int64_t>(i + _qp)], _prop[_qp]);
+      if (batched && static_cast<int64_t>(i + _qp) >= batch_size)
+        NEML2Utils::copyTensorToMOOSEData(flat_value[static_cast<int64_t>(i + _qp)], _prop[_qp]);
       else
         NEML2Utils::copyBlobToMOOSEData<T>(
             batched ? data + static_cast<std::ptrdiff_t>(i + _qp) * base_size : data, _prop[_qp]);
@@ -117,8 +120,9 @@ NEML2ToMOOSEMaterialProperty<T>::computeProperties()
   }
   else
     for (_qp = 0; _qp < _qrule->n_points(); ++_qp)
-      NEML2Utils::copyTensorToMOOSEData(batched ? _value[static_cast<int64_t>(i + _qp)] : _value,
-                                        _prop[_qp]);
+      NEML2Utils::copyTensorToMOOSEData(
+          batched ? flat_value[static_cast<int64_t>(i + _qp)] : flat_value, _prop[_qp]);
+
 }
 #endif
 

@@ -63,22 +63,26 @@ kokkosTorchDevice()
 
 registerKokkosMaterial("MooseApp", NEML2ToKokkosRankTwoMaterialProperty);
 registerKokkosMaterial("MooseApp", NEML2ToKokkosRankFourMaterialProperty);
+registerKokkosMaterial("MooseApp", NEML2ToKokkosFullRankTwoMaterialProperty);
+registerKokkosMaterial("MooseApp", NEML2ToKokkosFullRankFourMaterialProperty);
 
-template <unsigned int rank>
+template <unsigned int rank, bool full>
 InputParameters
-NEML2ToKokkosMaterialProperty<rank>::validParams()
+NEML2ToKokkosMaterialProperty<rank, full>::validParams()
 {
   auto params = Material::validParams();
   params += NEML2OutputInterface::validParams();
-  params.addClassDescription("Provides a symmetric rank-" + std::to_string(rank) +
+  params.addClassDescription("Provides a " + std::string(full ? "full" : "symmetric") +
+                             " rank-" + std::to_string(rank) +
                              " NEML2 output or derivative as a Kokkos material property.");
   params.addRequiredParam<MaterialPropertyName>(
       "to_moose", "Kokkos material property used to store the NEML2 output or derivative.");
   return params;
 }
 
-template <unsigned int rank>
-NEML2ToKokkosMaterialProperty<rank>::NEML2ToKokkosMaterialProperty(const InputParameters & params)
+template <unsigned int rank, bool full>
+NEML2ToKokkosMaterialProperty<rank, full>::NEML2ToKokkosMaterialProperty(
+    const InputParameters & params)
   : Material(params),
     NEML2OutputInterface(params, *this),
     _prop(declareKokkosProperty<Real, rank>("to_moose",
@@ -92,8 +96,8 @@ NEML2ToKokkosMaterialProperty<rank>::NEML2ToKokkosMaterialProperty(const InputPa
 #endif
 }
 
-template <unsigned int rank>
-NEML2ToKokkosMaterialProperty<rank>::NEML2ToKokkosMaterialProperty(
+template <unsigned int rank, bool full>
+NEML2ToKokkosMaterialProperty<rank, full>::NEML2ToKokkosMaterialProperty(
     const NEML2ToKokkosMaterialProperty & object)
   : Material(object),
     NEML2OutputInterface(object),
@@ -106,22 +110,22 @@ NEML2ToKokkosMaterialProperty<rank>::NEML2ToKokkosMaterialProperty(
 {
 }
 
-template <unsigned int rank>
+template <unsigned int rank, bool full>
 void
-NEML2ToKokkosMaterialProperty<rank>::meshChanged()
+NEML2ToKokkosMaterialProperty<rank, full>::meshChanged()
 {
   _batch_mapping_outdated = true;
 }
 
-template <unsigned int rank>
+template <unsigned int rank, bool full>
 void
-NEML2ToKokkosMaterialProperty<rank>::computeProperties()
+NEML2ToKokkosMaterialProperty<rank, full>::computeProperties()
 {
 #ifdef NEML2_ENABLED
   if (!outputReady())
     return;
 
-  constexpr unsigned int num_components = rank == 2 ? 6 : 36;
+  constexpr unsigned int num_components = full ? (rank == 2 ? 9 : 81) : (rank == 2 ? 6 : 36);
   const auto num_local_elements = kokkosMesh().getNumLocalElements();
 
   if (!neml2Output().defined())
@@ -140,16 +144,20 @@ NEML2ToKokkosMaterialProperty<rank>::computeProperties()
   }
   else
   {
-    const auto base_ndim = static_cast<int64_t>(rank / 2);
+    const auto base_ndim = static_cast<int64_t>(full ? rank : rank / 2);
     const auto batch_ndim = neml2Output().dim() - base_ndim;
-    const auto expected_shape = rank == 2 ? std::vector<int64_t>{6} : std::vector<int64_t>{6, 6};
+    const auto expected_shape =
+        full ? std::vector<int64_t>(rank, 3)
+             : (rank == 2 ? std::vector<int64_t>{6} : std::vector<int64_t>{6, 6});
     const auto actual_shape = neml2Output().sizes().slice(batch_ndim);
     if (!actual_shape.equals(expected_shape))
       mooseError("Cannot copy NEML2 tensor with shape ",
                  neml2Output().sizes(),
-                 " into a symmetric rank-",
-                 rank,
-                 " Kokkos material property; expected base shape ",
+                  " into a ",
+                  full ? "full" : "symmetric",
+                  " rank-",
+                  rank,
+                  " Kokkos material property; expected base shape ",
                  expected_shape,
                  ".");
     if (neml2Output().dtype() != at::kDouble)
@@ -233,3 +241,5 @@ NEML2ToKokkosMaterialProperty<rank>::computeProperties()
 
 template class NEML2ToKokkosMaterialProperty<2>;
 template class NEML2ToKokkosMaterialProperty<4>;
+template class NEML2ToKokkosMaterialProperty<2, true>;
+template class NEML2ToKokkosMaterialProperty<4, true>;

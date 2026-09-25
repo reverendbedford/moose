@@ -41,7 +41,7 @@ public:
   /**
    * Get PETSc matrix handle
    */
-  Mat mat() { return _matrix; }
+  Mat mat() { return _petsc_matrix; }
   /**
    * Free all data and reset
    */
@@ -121,9 +121,13 @@ private:
 #endif
 
   /**
-   * PETSc matrix
+   * Matrix receiving the assembled values
    */
-  Mat _matrix = PETSC_NULLPTR;
+  libMesh::SparseMatrix<PetscScalar> * _matrix = nullptr;
+  /**
+   * PETSc matrix handle when the receiving matrix is a PetscMatrix
+   */
+  Mat _petsc_matrix = PETSC_NULLPTR;
   /**
    * Number of rows local to this process
    */

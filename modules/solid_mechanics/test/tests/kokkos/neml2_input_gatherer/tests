@@ -1,6 +1,6 @@
 [Tests]
   issues = '#30655'
-  design = 'NEML2ModelExecutor.md KokkosQuantityToNEML2.md MOOSEQuantityToNEML2.md'
+  design = 'NEML2ModelExecutor.md KokkosQuantityToNEML2.md MOOSEQuantityToNEML2.md TorchDeformationGradient.md KokkosComputeLagrangianStressCustomPK2.md KokkosTotalLagrangianStressDivergence.md'
 
   [device_material_parameter_gather]
     type = Exodiff
@@ -10,5 +10,65 @@
     requirement = 'When Torch/Kokkos inputs use an element-QP 2D batch, the system shall allow a host MOOSE material property to be supplied as a NEML2 model parameter with the same batch shape and produce the reference thermo-elastic solution.'
     capabilities = 'kokkos & libtorch & neml2'
     compute_devices = 'cpu'
+  []
+
+  [deformation_gradient]
+    type = CSVDiff
+    input = 'deformation_gradient.i'
+    csvdiff = 'deformation_gradient_out.csv'
+    requirement = 'The system shall provide all nine components of the deformation gradient computed from three scalar displacement variables to a NEML2 model without symmetrizing or permuting tensor components.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu cuda'
+  []
+
+  [deformation_gradient_padding]
+    type = CSVDiff
+    input = 'deformation_gradient_padding.i'
+    csvdiff = 'deformation_gradient_padding_out.csv'
+    requirement = 'The system shall represent a deformation gradient formed from fewer than three scalar displacement variables as a three-dimensional tensor with zero missing displacement gradients and an identity contribution in every spatial direction.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu cuda'
+  []
+
+  [full_tensor_bridge]
+    type = CSVDiff
+    input = 'full_tensor_bridge.i'
+    csvdiff = 'full_tensor_bridge_out.csv'
+    requirement = 'The system shall transfer every component of full nonsymmetric rank-two NEML2 outputs and their full rank-four derivatives to Kokkos material properties without Mandel conversion or index permutation, and convert PK2 stress to PK1 stress.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu cuda'
+    allow_test_objects = true
+  []
+
+  [total_lagrangian_jacobian]
+    type = PetscJacobianTester
+    input = 'total_lagrangian_jacobian.i'
+    ratio_tol = 1e-7
+    difference_tol = 1e-3
+    requirement = 'The system shall assemble the consistent diagonal and off-diagonal Jacobian of a Kokkos total-Lagrangian stress divergence using full NEML2 PK2 stress derivatives.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu cuda'
+  []
+
+  [exact_kinematics]
+    type = Exodiff
+    input = 'exact_kinematics.i'
+    exodiff = 'exact_kinematics_out.e'
+    requirement = 'The Kokkos total-Lagrangian path shall reproduce the unstabilized host stateful NEML2 exact-kinematics crystal-plasticity solution.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu cuda'
+    heavy = true
+  []
+
+  [exact_kinematics_rollback]
+    type = Exodiff
+    input = 'exact_kinematics_rollback.i'
+    exodiff = 'exact_kinematics_out.e'
+    expect_out = 'causing a time step cutback by marking the current step as failed'
+    requirement = 'The Kokkos total-Lagrangian path shall discard trial device-managed NEML2 state when a failed solve is retried with a smaller timestep.'
+    capabilities = 'kokkos & libtorch & neml2'
+    compute_devices = 'cpu cuda'
+    heavy = true
+    prereq = exact_kinematics
   []
 []

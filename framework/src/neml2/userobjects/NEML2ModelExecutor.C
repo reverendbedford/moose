@@ -86,6 +86,10 @@ NEML2ModelExecutor::validParams()
       {},
       "List of MOOSE*ToNEML2 user objects gathering MOOSE data as NEML2 input variables");
   params.addParam<std::vector<UserObjectName>>(
+      "state_initializers",
+      {},
+      "List of MOOSE*ToNEML2 user objects gathering initial values for device-managed state");
+  params.addParam<std::vector<UserObjectName>>(
       "param_gatherers",
       {},
       "List of MOOSE*ToNEML2 user objects gathering MOOSE data as NEML2 model parameters");
@@ -123,6 +127,8 @@ NEML2ModelExecutor::NEML2ModelExecutor(const InputParameters & params)
   // add user object dependencies by name (the UOs do not need to exist yet for this)
   for (const auto & gatherer_name : getParam<std::vector<UserObjectName>>("gatherers"))
     _depend_uo.insert(gatherer_name);
+  for (const auto & gatherer_name : getParam<std::vector<UserObjectName>>("state_initializers"))
+    _depend_uo.insert(gatherer_name);
   for (const auto & gatherer_name : getParam<std::vector<UserObjectName>>("param_gatherers"))
     _depend_uo.insert(gatherer_name);
 #endif
@@ -149,6 +155,18 @@ NEML2ModelExecutor::initialSetup()
 
     addGatheredVariable(gatherer_name, uo.NEML2Name());
     _gatherers.push_back(&uo);
+  }
+
+  for (const auto & gatherer_name : getParam<std::vector<UserObjectName>>("state_initializers"))
+  {
+    const auto & uo = getUserObjectByName<MOOSEToNEML2>(gatherer_name, /*is_dependency=*/false);
+    const auto [base_name, lag] = parseLag(uo.NEML2Name());
+    if (!_manage_state_advance || lag == 0)
+      paramError("state_initializers",
+                 "The state initializer target `",
+                 uo.NEML2Name(),
+                 "` must be an old variable with manage_state_advance = true.");
+    _state_initializers.push_back(&uo);
   }
 
   // deal with user object provided model parameters
@@ -343,6 +361,9 @@ NEML2ModelExecutor::fillInputs()
   {
     for (const auto & uo : _gatherers)
       uo->insertInto(_in);
+    if (_manage_state_advance && !_state_committed)
+      for (const auto & uo : _state_initializers)
+        uo->insertInto(_state_vars);
     for (const auto & uo : _param_gatherers)
       uo->insertInto(_model_params);
 

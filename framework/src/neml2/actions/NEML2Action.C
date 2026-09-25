@@ -252,6 +252,21 @@ NEML2Action::act()
                                       std::to_string(input.history_order),
                                       input.history_order == 1 ? "Old" : ""));
 
+    std::vector<UserObjectName> state_initializers;
+    if (getParam<bool>("manage_state_advance"))
+      for (const auto & [output_name, initial_value] : _initialize_output_values)
+      {
+        const auto output_shapes = shapeMap(_model->output_names(), _model->output_base_shapes());
+        const auto moose_tensor_type = shapeToMooseType(libmesh_map_find(output_shapes, output_name));
+        mooseAssert(!moose_tensor_type.empty(), "Initialized output has an unsupported tensor type");
+        state_initializers.push_back(
+            addGatherer(initial_value,
+                        lagName(output_name, 1),
+                        NEML2Utils::MOOSEIOType::MATERIAL,
+                        moose_tensor_type,
+                        "state_initializer"));
+      }
+
     // Additional NEML2Kernels that provide input data
     for (const auto & kernel_name : getParam<std::vector<std::string>>("input_kernels"))
     {
@@ -286,6 +301,7 @@ NEML2Action::act()
       params.applyParameters(parameters());
       params.set<UserObjectName>("batch_index_generator") = _idx_generator_name;
       params.set<std::vector<UserObjectName>>("gatherers") = gatherers;
+      params.set<std::vector<UserObjectName>>("state_initializers") = state_initializers;
       params.set<std::vector<UserObjectName>>("param_gatherers") = param_gatherers;
       _problem->addUserObject(type, _executor_name, params);
     }

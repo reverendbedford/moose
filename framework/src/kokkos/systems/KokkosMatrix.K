@@ -19,29 +19,33 @@ Matrix::create(libMesh::SparseMatrix<PetscScalar> & matrix,
                std::vector<PetscInt> & coo_i,
                std::vector<PetscInt> & coo_j)
 {
+  if (_is_alloc && _matrix == &matrix)
+    return;
+
+  if (_is_alloc)
+    destroy();
+
   auto petsc_matrix = dynamic_cast<libMesh::PetscMatrix<PetscScalar> *>(&matrix);
 
   mooseAssert(petsc_matrix, "Kokkos matrix error: provided matrix is not a PetscMatrix.");
 
+  _matrix = &matrix;
+  _petsc_matrix = petsc_matrix->mat();
+
   PetscMemType mtype;
-  LibmeshPetscCallQ(MatGetCurrentMemType(petsc_matrix->mat(), &mtype));
-  const bool is_host = PetscMemTypeHost(mtype);
+  LibmeshPetscCallQ(MatGetCurrentMemType(_petsc_matrix, &mtype));
+  _is_host = PetscMemTypeHost(mtype);
 
 #ifndef MOOSE_ENABLE_KOKKOS_GPU
-  if (!is_host)
+  if (!_is_host)
     mooseError("PETSc matrices must be on host when Kokkos device capabilities are disabled.");
 #endif
 
-  if (_is_alloc)
-    return;
-
   auto & sparsity = system.getSparsity();
 
-  _matrix = petsc_matrix->mat();
   _nr = sparsity.row_ptr.size() - 1;
   _col_idx = sparsity.col_idx;
   _row_ptr = sparsity.row_ptr;
-  _is_host = is_host;
 
   // MatSetPreallocationCOO() sorts its index arrays in place and biases the row indices while doing
   // so, so it cannot be handed the sparsity arrays themselves: the column indices are read on
@@ -50,7 +54,8 @@ Matrix::create(libMesh::SparseMatrix<PetscScalar> & matrix,
   // matters because this call is reached on every host-to-device synchronization.
   system.buildCooIndices(coo_i, coo_j);
 
-  LibmeshPetscCallQ(MatSetPreallocationCOO(_matrix, coo_i.size(), coo_i.data(), coo_j.data()));
+  LibmeshPetscCallQ(
+      MatSetPreallocationCOO(_petsc_matrix, coo_i.size(), coo_i.data(), coo_j.data()));
 
   if (!_is_host)
     _val.createDevice(_col_idx.size());
@@ -63,7 +68,8 @@ Matrix::create(libMesh::SparseMatrix<PetscScalar> & matrix,
 void
 Matrix::destroy()
 {
-  _matrix = PETSC_NULLPTR;
+  _matrix = nullptr;
+  _petsc_matrix = PETSC_NULLPTR;
   _nr = 0;
 
   _col_idx.destroy();
@@ -81,7 +87,7 @@ Matrix::close()
     _val.copyToHost();
 
   LibmeshPetscCallQ(
-      MatSetValuesCOO(_matrix, _is_host ? _val.hostData() : _val.deviceData(), ADD_VALUES));
+      MatSetValuesCOO(_petsc_matrix, _is_host ? _val.hostData() : _val.deviceData(), ADD_VALUES));
 
   ::Kokkos::fence();
 }

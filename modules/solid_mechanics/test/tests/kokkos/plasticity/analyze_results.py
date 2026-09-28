@@ -29,14 +29,14 @@ STEPS = [
     ("step1_plasticity_cpu_neml2", "1. CPU NEML2"),
     ("step2_plasticity_gpu_neml2", "2. GPU NEML2"),
     (
-        "step3a_plasticity_cpu_neml2_kokkos_cpu_petsc",
+        "step3_plasticity_cpu_neml2_kokkos_cpu_petsc",
         "3. CPU NEML2 + GPU assembly",
     ),
     (
-        "step3b_plasticity_gpu_neml2_kokkos_cpu_petsc",
+        "step4_plasticity_gpu_neml2_kokkos_cpu_petsc",
         "4. GPU NEML2 + GPU assembly",
     ),
-    ("step4_plasticity_full_gpu", "5. Full GPU"),
+    ("step5_plasticity_full_gpu", "5. Full GPU"),
 ]
 
 

@@ -99,9 +99,9 @@ GPU_OPT="-vec_type kokkos   -nl0_mat_type aijkokkos -use_gpu_aware_mpi 0 $COMMON
 
 steps=(step1_plasticity_cpu_neml2
        step2_plasticity_gpu_neml2
-       step3a_plasticity_cpu_neml2_kokkos_cpu_petsc
-       step3b_plasticity_gpu_neml2_kokkos_cpu_petsc
-       step4_plasticity_full_gpu)
+       step3_plasticity_cpu_neml2_kokkos_cpu_petsc
+       step4_plasticity_gpu_neml2_kokkos_cpu_petsc
+       step5_plasticity_full_gpu)
 
 banner() {
   echo
@@ -217,10 +217,10 @@ run_step() {
   local petsc=$CPU_OPT
   local device_args=()
 
-  if [[ "$step" == step3a_* || "$step" == step3b_* || "$step" == step4_* ]]; then
+  if [[ "$step" == step3_* || "$step" == step4_* || "$step" == step5_* ]]; then
     device_args=(--compute-device=cuda)
   fi
-  if [[ "$step" == step4_* ]]; then
+  if [[ "$step" == step5_* ]]; then
     petsc=$GPU_OPT
   fi
 
@@ -265,4 +265,4 @@ echo "  Raw logs   : $RESULTS_DIR/*.log"
 echo
 echo "  Step-4 sanity: this should list aijkokkos + kokkos (NOT aij + standard):"
 echo "    grep -E '^[[:space:]]*(Mat|Vec) Object|^[[:space:]]+type:' \\"
-echo "      $RESULTS_DIR/step4_plasticity_full_gpu.log | head -20"
+echo "      $RESULTS_DIR/step5_plasticity_full_gpu.log | head -20"

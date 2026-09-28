@@ -44,53 +44,45 @@ export WASP_DIR="$PREFIX"
 # $PREFIX. Redundant after a fresh build_openmpi.sh; harmless.
 export OPAL_PREFIX="$PREFIX"
 
-# PATH: prepend $PREFIX/bin (mpicc/mpirun/libmesh-config), add CUDA bin
-# (nvcc/nsys). All entries guarded so re-sourcing does not duplicate.
-case ":$PATH:" in
-  *":$PREFIX/bin:"*) ;;
-  *) PATH="$PREFIX/bin:$PATH" ;;
-esac
-case ":$PATH:" in
-  *":/usr/local/cuda/bin:"*) ;;
-  *) PATH="$PATH:/usr/local/cuda/bin" ;;
-esac
-
-# NEML2 support (only when the venv is present): matches the PATH order
-# build_moose.sh uses so `cd anywhere && make -j` produces a binary with
-# the same RUNPATH as `scripts/build_moose.sh` would.
-#   $NEML2_VENV_BIN  -> python3 (venv, has `import neml2`)
-#   miniforge/bin    -> python3-config (miniforge base, Python 3.12,
-#                       needed for MOOSE's `python3-config --embed`
-#                       -lpython3.12 rather than /usr/bin's Py3.10)
-# Both inserted AFTER $PREFIX/bin so mpicxx stays ours.
+# PATH: force ordering $PREFIX/bin : $NEML2_VENV_BIN : $MINIFORGE_BIN : /usr/local/cuda/bin
+# in front of whatever the caller inherited. The previous scheme inserted the
+# venv path AFTER $PREFIX/bin via a bash substring replace on ${PATH}; when
+# the pre-existing PATH did not have $PREFIX/bin at the very front (e.g. a
+# conda profile put miniforge/bin first) the substitution silently missed and
+# MOOSE's embedded Python booted against miniforge base without torch.
+#
+# The re-source-safe idempotent rebuild here always ends up with the correct
+# ordering, whatever the caller inherited, and duplicates every entry only
+# once so repeated sourcing is a no-op.
 NEML2_VENV_BIN="$STACK_DIR/neml2-venv/bin"
+MINIFORGE_BIN="/home/chenghau.yang/miniforge/bin"
+
+_head="$PREFIX/bin"
 if [ -x "$NEML2_VENV_BIN/python3" ]; then
-  case ":$PATH:" in
-    *":$NEML2_VENV_BIN:"*) ;;
-    *)
-      # Insert right after $PREFIX/bin
-      PATH="${PATH/$PREFIX\/bin:/$PREFIX/bin:$NEML2_VENV_BIN:}"
-      ;;
-  esac
+  _head="$_head:$NEML2_VENV_BIN"
   export VIRTUAL_ENV="$STACK_DIR/neml2-venv"
 fi
-
-MINIFORGE_BIN="/home/chenghau.yang/miniforge/bin"
 if [ -x "$MINIFORGE_BIN/python3-config" ]; then
-  case ":$PATH:" in
-    *":$MINIFORGE_BIN:"*) ;;
-    *)
-      # Insert right after venv bin (or $PREFIX/bin if venv absent)
-      if [ -n "${VIRTUAL_ENV:-}" ]; then
-        PATH="${PATH/$NEML2_VENV_BIN:/$NEML2_VENV_BIN:$MINIFORGE_BIN:}"
-      else
-        PATH="${PATH/$PREFIX\/bin:/$PREFIX/bin:$MINIFORGE_BIN:}"
-      fi
-      ;;
-  esac
+  _head="$_head:$MINIFORGE_BIN"
 fi
+_head="$_head:/usr/local/cuda/bin"
 
-export PATH
+_new_path="$_head"
+_orig_ifs="$IFS"
+IFS=':'
+# Loop over the caller's PATH entries. Word-splitting on `:` gives us the entries
+# in both bash and zsh. Guard against unset PATH.
+set -f
+for _p in ${PATH:-}; do
+  case ":$_new_path:" in
+    *":$_p:"*) ;;
+    *) _new_path="$_new_path:$_p" ;;
+  esac
+done
+set +f
+IFS="$_orig_ifs"
+export PATH="$_new_path"
+unset _head _new_path _orig_ifs _p
 
 : "${MOOSE_JOBS:=8}"
 export MOOSE_JOBS

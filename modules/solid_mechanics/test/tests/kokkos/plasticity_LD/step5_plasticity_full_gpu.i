@@ -182,8 +182,10 @@ N = 16
   type = Transient
   solve_type = NEWTON
   line_search = none
-  petsc_options_iname = '-pc_type -pc_hypre_type -ksp_type'
-  petsc_options_value = 'hypre boomeramg    gmres'
+  # HYPRE defaults to a 4 GiB Umpire device pool on GPU, which causes
+  # unnecessary memory pressure when sharing the device with NEML2/PyTorch.
+  petsc_options_iname = '-pc_type -pc_hypre_type -ksp_type -hypre_umpire_device_pool_size'
+  petsc_options_value = 'hypre boomeramg    gmres     256'
   dt = 1e-3
   dtmin = 1e-3
   num_steps = 5

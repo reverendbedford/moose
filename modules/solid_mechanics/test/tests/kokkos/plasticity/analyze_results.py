@@ -237,13 +237,12 @@ def collect(results_dir: Path) -> pd.DataFrame:
 
             wall_time, failed = read_wall_time(time_path)
 
-            if failed:
-                failed_reps += 1
-                continue
-
             if math.isnan(wall_time):
                 failed_reps += 1
                 continue
+
+            if failed:
+                failed_reps += 1
 
             used_reps += 1
 
@@ -307,6 +306,7 @@ def plot_results(frame: pd.DataFrame, output: Path) -> None:
     axes[0, 0].bar(labels, frame["total_wall_time_s"])
     axes[0, 0].set_title("Total wall time")
     axes[0, 0].set_ylabel("Seconds")
+    axes[0, 0].set_yscale("log")
 
     axes[0, 1].bar(labels, frame["neml2_solve_s"])
     axes[0, 1].set_title("NEML2::solve")

@@ -357,10 +357,8 @@ binaryoutput
 .codegraph/
 !codegraph.json
 
-
-modules/solid_mechanics/test/tests/kokkos/plasticity/diag_results
-
-modules/solid_mechanics/test/tests/kokkos/plasticity/results_n32_smoke/
-
+modules/solid_mechanics/test/tests/kokkos/**/diag_results*/
+modules/solid_mechanics/test/tests/kokkos/**/results*/
+*.time
 
 .plans

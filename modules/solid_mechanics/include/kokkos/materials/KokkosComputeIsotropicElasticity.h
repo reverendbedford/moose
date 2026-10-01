@@ -39,18 +39,20 @@ KokkosComputeIsotropicElasticity::computeQpProperties(const unsigned int qp, Dat
   auto stress = _stress(datum, qp);
   auto tangent = _tangent(datum, qp);
   Real divergence = 0;
-  for (const auto i : make_range(_ndisp))
+  // libMesh::make_range() is host-only and cannot be called from device code; use raw
+  // counter loops.
+  for (unsigned int i = 0; i < _ndisp; ++i)
     divergence += _grad_displacements(datum, qp, i)(i);
 
-  for (const auto i : make_range(_ndisp))
-    for (const auto j : make_range(_ndisp))
+  for (unsigned int i = 0; i < _ndisp; ++i)
+    for (unsigned int j = 0; j < _ndisp; ++j)
     {
       stress(i, j) = _lambda * divergence * (i == j) +
                      _mu * (_grad_displacements(datum, qp, i)(j) +
                             _grad_displacements(datum, qp, j)(i));
 
-      for (const auto k : make_range(_ndisp))
-        for (const auto l : make_range(_ndisp))
+      for (unsigned int k = 0; k < _ndisp; ++k)
+        for (unsigned int l = 0; l < _ndisp; ++l)
           tangent(i, j, k, l) = _lambda * (i == j) * (k == l) +
                                 _mu * ((i == k) * (j == l) + (i == l) * (j == k));
     }

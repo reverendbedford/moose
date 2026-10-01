@@ -62,7 +62,7 @@ ifeq ($(PETSC_HAVE_KOKKOS),1)
     ifeq ($(PETSC_HAVE_HIPCUDA),1)
       $(error For NVIDIA GPUs, use CUDA instead of HIP)
     endif
-    HIP_ARCH := $(shell sed -n 's/\#define PETSC_HIP_ROCM_ARCH //p' $(PETSC_CONF))
+    HIP_ARCH := gfx90a
   endif
   ifeq ($(PETSC_HAVE_SYCL),1)
     SYCL_ARCH := $(shell sed -n 's/\#define PETSC_SYCL_DEVICE //p' $(PETSC_CONF))
@@ -102,9 +102,9 @@ else ifneq ($(PETSC_HAVE_HIP),)
   KOKKOS_ARCH       := $(KOKKOS_HIP_ARCH_$(HIP_ARCH))
   KOKKOS_COMPILER   := HIPCC
   KOKKOS_CXX         = $(HIP_COMPILER)
-  KOKKOS_CXXFLAGS    = --offload-arch=$(HIP_ARCH) -x hip $(CXXFLAGS) $(libmesh_CXXFLAGS)
-  KOKKOS_CPPFLAGS    = $(libmesh_CPPFLAGS) $(ADDITIONAL_CPPFLAGS) ${ADDITIONAL_KOKKOS_CPPFLAGS}
-  KOKKOS_LDFLAGS     = --offload-arch=$(HIP_ARCH)
+  KOKKOS_CXXFLAGS    = --offload-arch=$(HIP_ARCH) -x hip $(CXXFLAGS) $(libmesh_CXXFLAGS) -I${MPICH_DIR}/include
+  KOKKOS_CPPFLAGS    = $(libmesh_CPPFLAGS) $(ADDITIONAL_CPPFLAGS) ${ADDITIONAL_KOKKOS_CPPFLAGS} -I${MPICH_DIR}/include
+  KOKKOS_LDFLAGS     = --offload-arch=$(HIP_ARCH) -L${MPICH_DIR}/lib -lmpi ${CRAY_XPMEM_POST_LINK_OPTS} -lxpmem ${PE_MPICH_GTL_DIR_amd_gfx90a} ${PE_MPICH_GTL_LIBS_amd_gfx90a} -I${MPICH_DIR}/include -fopenmp -Wl,-rpath,$(ROCM_PATH)/llvm/lib
 else ifneq ($(PETSC_HAVE_SYCL),)
   KOKKOS_DEVICE     := SYCL
   KOKKOS_ARCH       := $(KOKKOS_SYCL_ARCH_$(SYCL_ARCH))

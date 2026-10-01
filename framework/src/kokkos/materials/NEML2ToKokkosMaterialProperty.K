@@ -33,6 +33,10 @@ kokkosTorchDevice()
   return at::Device(at::kCPU);
 #elif defined(KOKKOS_ENABLE_CUDA)
   return at::Device(at::kCUDA, ExecSpace().cuda_device());
+#elif defined(KOKKOS_ENABLE_HIP)
+  // ROCm builds of torch expose HIP devices under the CUDA device type, and both torch and Kokkos
+  // index them by the HIP runtime's device ordinal.
+  return at::Device(at::kCUDA, ExecSpace().hip_device());
 #elif defined(KOKKOS_ENABLE_SYCL)
   // A USM pointer is only valid within the SYCL context it was allocated in, so an unmanaged View
   // over a torch allocation is addressable from the Kokkos queue only if the two share a context.
@@ -54,8 +58,8 @@ kokkosTorchDevice()
                static_cast<int>(c10::xpu::device_count()),
                " XPU devices visible to torch.");
 #else
-  ::mooseError("NEML2ToKokkosMaterialProperty supports GPU execution only with the CUDA and SYCL "
-               "Kokkos backends.");
+  ::mooseError("NEML2ToKokkosMaterialProperty supports GPU execution only with the CUDA, HIP, "
+               "and SYCL Kokkos backends.");
 #endif
 }
 }
